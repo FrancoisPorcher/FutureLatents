@@ -1,5 +1,5 @@
 """FutureLatents core library."""
 
-from .kinetics_400 import Kinetics400
+from .models import LatentVideoModel
 
-__all__ = ["Kinetics400"]
+__all__ = ["LatentVideoModel"]
