@@ -1,8 +1,5 @@
 from pathlib import Path
 
-import yaml
-from transformers import AutoVideoProcessor
-
 # Import the project package relative to this module so that running
 # ``python -m src.main`` works without requiring ``src`` on the
 # ``PYTHONPATH``.
@@ -10,23 +7,8 @@ from .futurelatents.models import LatentVideoModel
 breakpoint()
 from datasets.kinetics_400 import Kinetics400
 from utils.parser import create_parser
+from utils.config import load_config
 import torch
-
-
-def load_config(path: Path) -> dict:
-    """Load configuration with simple inheritance support."""
-    with open(path) as f:
-        config = yaml.safe_load(f)
-    defaults = config.pop("defaults", [])
-    merged = {}
-    for item in defaults:
-        for key, value in item.items():
-            sub_path = path.parent / key / f"{value}.yaml"
-            with open(sub_path) as sf:
-                sub_cfg = yaml.safe_load(sf)
-            merged.update(sub_cfg)
-    merged.update(config)
-    return merged
 
 
 def main() -> None:
@@ -38,8 +20,8 @@ def main() -> None:
     dataset = Kinetics400(config)
 
     model = LatentVideoModel(config)
-    learning_rate = float(config["learning_rate"])
-    weight_decay = float(config.get("weight_decay", 0.01))
+    learning_rate = float(config["trainer"]["learning_rate"])
+    weight_decay = float(config["trainer"].get("weight_decay", 0.01))
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
