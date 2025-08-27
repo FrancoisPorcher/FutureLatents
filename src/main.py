@@ -10,14 +10,13 @@ def main() -> None:
     """Entry point for the FutureLatents application."""
     parser = create_parser()
     args = parser.parse_args()
+    
 
     with open(Path(args.config_path)) as f:
         config = yaml.safe_load(f)
+    dataset = Kinetics400(config)
+    breakpoint()
 
-    csv_path = config["datasets"]["kinetics_400"]["paths"]["csv"]
-    dataset = Kinetics400(csv_path)
-
-    _ = len(dataset)  # simple usage to avoid unused variable warnings
 
 
 if __name__ == "__main__":
