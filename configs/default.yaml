@@ -1,4 +1,6 @@
 datasets:
   kinetics_400:
+    n_frame: 64
+    stride: 2
     paths:
       csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_train_paths.csv
