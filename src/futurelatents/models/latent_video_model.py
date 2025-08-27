@@ -29,8 +29,9 @@ class LatentVideoModel(nn.Module):
         self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
         # Placeholder for future diffusion transformer component
         self.diffusion_transformer = None
-        # Freeze encoder weights by default
-        self.set_encoder_trainable(False)
+        # Configure whether the encoder should be trainable
+        trainable = config.get("encoder_trainable", False)
+        self.set_encoder_trainable(trainable)
 
     # ------------------------------------------------------------------
     # Training helpers

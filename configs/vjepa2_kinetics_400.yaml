@@ -1,3 +1,4 @@
 defaults:
   - backbones: vjepa2
   - datasets: kinetics_400
+encoder_trainable: false
