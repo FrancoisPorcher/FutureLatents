@@ -3,7 +3,10 @@ from pathlib import Path
 import yaml
 from transformers import AutoVideoProcessor
 
-from futurelatents.models import LatentVideoModel
+# Import the project package relative to this module so that running
+# ``python -m src.main`` works without requiring ``src`` on the
+# ``PYTHONPATH``.
+from .futurelatents.models import LatentVideoModel
 
 from datasets.kinetics_400 import Kinetics400
 from utils.parser import create_parser
