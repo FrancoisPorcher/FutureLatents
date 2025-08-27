@@ -15,6 +15,9 @@ def main() -> None:
     with open(Path(args.config_path)) as f:
         config = yaml.safe_load(f)
     dataset = Kinetics400(config)
+    
+    # try to get sample
+    sample = dataset[10]
     breakpoint()
 
 

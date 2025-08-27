@@ -18,7 +18,7 @@ def load_n_frames_with_padding(vr: VideoReader, n_frame: int, stride: int) -> Tu
     pad by repeating the last frame.
     """
     desired_idx = np.arange(0, n_frame * stride, stride)
-    n = len(vr)
+    n = len(vr)  # number of frames in video
     if n == 0:
         raise RuntimeError("Video has zero frames.")
     valid_idx = desired_idx[desired_idx < n]
@@ -26,7 +26,7 @@ def load_n_frames_with_padding(vr: VideoReader, n_frame: int, stride: int) -> Tu
         valid_idx = np.array([0], dtype=np.int64)
 
     frames = vr.get_batch(valid_idx).asnumpy()  # [T,H,W,C] uint8
-    t = frames.shape[0]
+    t = frames.shape[0]  # number of valid frames
     padded = False
     if t < n_frame:
         last = frames[-1:]
@@ -65,14 +65,20 @@ class Kinetics400(Dataset):
         padded = False
 
         vr = VideoReader(video_path)
-        n_frames = len(vr)
-        video, padded = load_n_frames_with_padding(vr, self.n_frame, self.stride)     # [n_frame,H,W,C] uint8
+        n_frames_original_video = len(vr)
+        video, padded = load_n_frames_with_padding(vr, self.n_frame, self.stride)     # [n_frame,H,W,C] uint8, values are between 0 and 255
         video_tensor = torch.from_numpy(video).permute(0, 3, 1, 2)  # [n_frame,C,H,W]
+        
+        n_frames, C, H, W = video_tensor.shape
 
         return {
             "video": video_tensor,          # [n_frame,C,H,W] uint8 tensor
             "index": index,
             "video_path": video_path,
+            "n_frames_original_video": n_frames_original_video,
             "n_frames": n_frames,
+            "C_original": C,
+            "H_original": H,
+            "W_original": W,
             "padded": padded,
         }
