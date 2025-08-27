@@ -1,6 +1,5 @@
-defaults:
-  - backbones: vjepa2
-  - datasets: kinetics_400
+inherits:
+  - datasets/kinetics_400.yaml
+  - backbones/vjepa2.yaml
+  - training/trainer.yaml
 encoder_trainable: false
-learning_rate: 1e-5
-weight_decay: 0.01

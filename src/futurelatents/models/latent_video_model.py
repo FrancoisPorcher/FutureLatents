@@ -56,3 +56,24 @@ class LatentVideoModel(nn.Module):
         """Preprocess and encode a batch of video frames."""
         inputs = self.preprocessor(video, return_tensors="pt")
         return self.encoder(inputs["pixel_values"])
+
+    # ------------------------------------------------------------------
+    # Introspection helpers
+    # ------------------------------------------------------------------
+    def count_parameters(self) -> Dict[str, int]:  # pragma: no cover - simple reporting
+        """Return parameter counts for sub-modules and the total.
+
+        Each module's parameter count is printed as ``"<name>: <count>"`` and a
+        dictionary with the counts is returned.
+        """
+        counts: Dict[str, int] = {}
+        counts["encoder"] = sum(p.numel() for p in self.encoder.parameters())
+        if self.diffusion_transformer is not None:
+            counts["diffusion_transformer"] = sum(
+                p.numel() for p in self.diffusion_transformer.parameters()
+            )
+        total = sum(counts.values())
+        counts["total"] = total
+        for name, num in counts.items():
+            print(f"{name}: {num}")
+        return counts
