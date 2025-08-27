@@ -39,8 +39,11 @@ def main() -> None:
 
     model = LatentVideoModel(config)
     breakpoint()
-    
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    learning_rate = float(config["learning_rate"])
+    weight_decay = float(config.get("weight_decay", 0.01))
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=learning_rate, weight_decay=weight_decay
+    )
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
     
 
