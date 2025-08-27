@@ -38,7 +38,6 @@ def main() -> None:
     dataset = Kinetics400(config)
 
     model = LatentVideoModel(config)
-    breakpoint()
     learning_rate = float(config["learning_rate"])
     weight_decay = float(config.get("weight_decay", 0.01))
     optimizer = torch.optim.AdamW(
