@@ -34,15 +34,12 @@ def main() -> None:
     config = load_config(Path(args.config_path))
     dataset = Kinetics400(config)
 
-    model = LatentVideoModel(config).eval()
-    processor = AutoVideoProcessor.from_pretrained(config["backbone"]["hf_repo"])
-    
+    model = LatentVideoModel(config)
     breakpoint()
     
-    # try to get sample
-    sample = dataset[10]
-    breakpoint()
-
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
+    
 
 
 if __name__ == "__main__":
