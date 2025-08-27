@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
+import numpy as np
 import pandas as pd
+import torch
 from torch.utils.data import Dataset
 from decord import VideoReader
 
-def load_64_frames_with_padding(vr: VideoReader) -> Tuple[np.ndarray, bool]:
+def load_n_frames_with_padding(vr: VideoReader, n_frame: int, stride: int) -> Tuple[np.ndarray, bool]:
     """
-    Returns exactly 64 frames as uint8 [T,H,W,C] and a 'padded' flag.
-    Desired indices are 0..126 step 2. If shorter, pad by repeating last frame.
+    Returns exactly ``n_frame`` frames as uint8 [T,H,W,C] and a 'padded' flag.
+    Desired indices are 0..(n_frame * stride - 1) step ``stride``. If shorter,
+    pad by repeating the last frame.
     """
-    desired_idx = np.arange(0, 128, 2)  # 64 indices: 0,2,...,126
+    desired_idx = np.arange(0, n_frame * stride, stride)
     n = len(vr)
     if n == 0:
         raise RuntimeError("Video has zero frames.")
@@ -25,13 +28,13 @@ def load_64_frames_with_padding(vr: VideoReader) -> Tuple[np.ndarray, bool]:
     frames = vr.get_batch(valid_idx).asnumpy()  # [T,H,W,C] uint8
     t = frames.shape[0]
     padded = False
-    if t < 64:
-        last = frames[-1:]                          # [1,H,W,C]
-        pad = np.repeat(last, 64 - t, axis=0)       # [64-t,H,W,C]
+    if t < n_frame:
+        last = frames[-1:]
+        pad = np.repeat(last, n_frame - t, axis=0)
         frames = np.concatenate([frames, pad], axis=0)
         padded = True
-    elif t > 64:
-        frames = frames[:64]  # safeguard
+    elif t > n_frame:
+        frames = frames[:n_frame]  # safeguard
     return frames, padded
 
 class Kinetics400(Dataset):
@@ -46,8 +49,9 @@ class Kinetics400(Dataset):
     def __init__(self, config) -> None:
         self.config = config
         self.csv_path = str(config["datasets"]["kinetics_400"]["paths"]["csv"])
+        self.n_frame = int(config["datasets"]["kinetics_400"]["n_frame"])
+        self.stride = int(config["datasets"]["kinetics_400"]["stride"])
         self.dataframe = pd.read_csv(self.csv_path, header=None, names=["video_path", "index"], sep=" ")
-        breakpoint()
 
     def __len__(self) -> int:  # pragma: no cover - simple wrapper
         """Return the number of samples in the dataset."""
@@ -62,11 +66,11 @@ class Kinetics400(Dataset):
 
         vr = VideoReader(video_path)
         n_frames = len(vr)
-        video, padded = load_64_frames_with_padding(vr)     # [64,H,W,C] uint8
-        video_tensor = torch.from_numpy(video).permute(0, 3, 1, 2)  # [64,C,H,W]
+        video, padded = load_n_frames_with_padding(vr, self.n_frame, self.stride)     # [n_frame,H,W,C] uint8
+        video_tensor = torch.from_numpy(video).permute(0, 3, 1, 2)  # [n_frame,C,H,W]
 
         return {
-            "video": video_tensor,          # [64,C,H,W] uint8 tensor
+            "video": video_tensor,          # [n_frame,C,H,W] uint8 tensor
             "index": index,
             "video_path": video_path,
             "n_frames": n_frames,
