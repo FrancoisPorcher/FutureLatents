@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import yaml
-from transformers import AutoModel, AutoVideoProcessor
+from transformers import AutoVideoProcessor
+
+from futurelatents.models import LatentVideoModel
 
 from datasets.kinetics_400 import Kinetics400
 from utils.parser import create_parser
@@ -31,10 +33,8 @@ def main() -> None:
 
     config = load_config(Path(args.config_path))
     dataset = Kinetics400(config)
-    breakpoint()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    breakpoint()
-    model = AutoModel.from_pretrained(config["backbone"]["hf_repo"]).to(device).eval()
+
+    model = LatentVideoModel(config).eval()
     processor = AutoVideoProcessor.from_pretrained(config["backbone"]["hf_repo"])
     
     breakpoint()
