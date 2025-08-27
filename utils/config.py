@@ -28,3 +28,16 @@ def load_config(path: Path) -> Dict[str, Any]:
         merged = _merge_with_conflict(merged, sub_cfg)
     merged = _merge_with_conflict(merged, cfg)
     return OmegaConf.to_container(merged, resolve=True)
+
+
+def print_config(config: Dict[str, Any]) -> None:
+    """Print a resolved configuration in YAML format.
+
+    Parameters
+    ----------
+    config : Dict[str, Any]
+        Configuration dictionary as returned by :func:`load_config`.
+    """
+
+    conf = OmegaConf.create(config)
+    print(OmegaConf.to_yaml(conf))
