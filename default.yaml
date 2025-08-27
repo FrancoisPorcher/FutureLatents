@@ -1,0 +1,4 @@
+datasets:
+  kinetics_400:
+    paths:
+      csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_train_paths.csv
