@@ -31,7 +31,9 @@ class LatentVideoModel(nn.Module):
         self.diffusion_transformer = None
         # Configure whether the encoder should be trainable
         trainable = config.get("encoder_trainable", False)
+        breakpoint()
         self.set_encoder_trainable(trainable)
+        breakpoint()
 
     # ------------------------------------------------------------------
     # Training helpers

@@ -7,7 +7,7 @@ from transformers import AutoVideoProcessor
 # ``python -m src.main`` works without requiring ``src`` on the
 # ``PYTHONPATH``.
 from .futurelatents.models import LatentVideoModel
-
+breakpoint()
 from datasets.kinetics_400 import Kinetics400
 from utils.parser import create_parser
 import torch
