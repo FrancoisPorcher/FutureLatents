@@ -1,0 +1,3 @@
+defaults:
+  - backbones: vjepa2
+  - datasets: kinetics_400
