@@ -1,8 +1,6 @@
 from pathlib import Path
 
 import yaml
-from transformers import AutoVideoProcessor
-
 from futurelatents.models import LatentVideoModel
 
 from datasets.kinetics_400 import Kinetics400
@@ -35,10 +33,19 @@ def main() -> None:
     dataset = Kinetics400(config)
 
     model = LatentVideoModel(config)
-    breakpoint()
-    
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
+
+    # Build optimiser using only trainable parameters
+    params = list(model.trainable_parameters())
+    if not params:
+        raise ValueError("No trainable parameters found for optimisation.")
+    optim_cfg = config.get("optimizer", {})
+    optim_cls = getattr(torch.optim, optim_cfg.get("name", "AdamW"))
+    optimizer = optim_cls(params, **optim_cfg.get("params", {}))
+
+    # Learning rate scheduler configuration
+    sched_cfg = config.get("scheduler", {})
+    sched_cls = getattr(torch.optim.lr_scheduler, sched_cfg.get("name", "ConstantLR"))
+    scheduler = sched_cls(optimizer, **sched_cfg.get("params", {}))
     
 
 

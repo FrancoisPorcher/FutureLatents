@@ -31,6 +31,8 @@ class LatentVideoModel(nn.Module):
         self.diffusion_transformer = None
         # Freeze encoder weights by default
         self.set_encoder_trainable(False)
+        # Report total parameter count for informational purposes
+        self.print_num_parameters()
 
     # ------------------------------------------------------------------
     # Training helpers
@@ -47,6 +49,17 @@ class LatentVideoModel(nn.Module):
     # Backwards compatibility with the example API
     def trainable_modules(self) -> Iterable[nn.Parameter]:  # pragma: no cover - simple wrapper
         return self.trainable_parameters()
+
+    # ------------------------------------------------------------------
+    # Utility helpers
+    # ------------------------------------------------------------------
+    def num_parameters(self) -> int:
+        """Return the total number of parameters in the model."""
+        return sum(p.numel() for p in self.parameters())
+
+    def print_num_parameters(self) -> None:  # pragma: no cover - simple print helper
+        """Print the total number of parameters in the model."""
+        print(f"Total parameters: {self.num_parameters():,}")
 
     # ------------------------------------------------------------------
     # Forward helpers

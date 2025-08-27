@@ -1,3 +1,15 @@
 defaults:
   - backbones: vjepa2
   - datasets: kinetics_400
+
+optimizer:
+  name: AdamW
+  params:
+    lr: 1e-4
+    weight_decay: 0.0
+
+scheduler:
+  name: ConstantLR
+  params:
+    factor: 1.0
+    total_iters: 0
