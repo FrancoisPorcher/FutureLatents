@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 import torch.nn as nn
-from transformers import AutoModel
+from transformers import AutoModel, AutoVideoProcessor
 
 
 class LatentVideoModel(nn.Module):
@@ -23,6 +23,35 @@ class LatentVideoModel(nn.Module):
         super().__init__()
         self.config = config
         # Backbone encoder producing latent representations
-        self.encoder = AutoModel.from_pretrained(config["backbone"]["hf_repo"])
+        hf_repo = config["backbone"]["hf_repo"]
+        self.encoder = AutoModel.from_pretrained(hf_repo)
+        # Use the original Hugging Face video preprocessor tied to the encoder
+        self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
         # Placeholder for future diffusion transformer component
         self.diffusion_transformer = None
+        # Freeze encoder weights by default
+        self.set_encoder_trainable(False)
+
+    # ------------------------------------------------------------------
+    # Training helpers
+    # ------------------------------------------------------------------
+    def set_encoder_trainable(self, trainable: bool) -> None:
+        """Enable or disable training for the encoder parameters."""
+        for param in self.encoder.parameters():
+            param.requires_grad = trainable
+
+    def trainable_parameters(self) -> Iterable[nn.Parameter]:  # pragma: no cover - simple generator
+        """Yield parameters that require gradients."""
+        return (p for p in self.parameters() if p.requires_grad)
+
+    # Backwards compatibility with the example API
+    def trainable_modules(self) -> Iterable[nn.Parameter]:  # pragma: no cover - simple wrapper
+        return self.trainable_parameters()
+
+    # ------------------------------------------------------------------
+    # Forward helpers
+    # ------------------------------------------------------------------
+    def encode_video(self, video):  # pragma: no cover - thin wrapper
+        """Preprocess and encode a batch of video frames."""
+        inputs = self.preprocessor(video, return_tensors="pt")
+        return self.encoder(inputs["pixel_values"])
