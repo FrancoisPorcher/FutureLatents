@@ -40,6 +40,7 @@ class LatentVideoModel(nn.Module):
         """Enable or disable training for the encoder parameters."""
         for param in self.encoder.parameters():
             param.requires_grad = trainable
+        print("Froze encoder")
 
     def trainable_parameters(self) -> Iterable[nn.Parameter]:  # pragma: no cover - simple generator
         """Yield parameters that require gradients."""

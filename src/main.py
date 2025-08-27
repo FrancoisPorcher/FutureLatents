@@ -4,7 +4,6 @@ from pathlib import Path
 # ``python -m src.main`` works without requiring ``src`` on the
 # ``PYTHONPATH``.
 from .futurelatents.models import LatentVideoModel
-breakpoint()
 from datasets.kinetics_400 import Kinetics400
 from utils.parser import create_parser
 from utils.config import load_config
@@ -20,8 +19,12 @@ def main() -> None:
     dataset = Kinetics400(config)
 
     model = LatentVideoModel(config)
+    
+    model.count_parameters()
+    breakpoint()
+    
     learning_rate = float(config["trainer"]["learning_rate"])
-    weight_decay = float(config["trainer"].get("weight_decay", 0.01))
+    weight_decay = float(config["trainer"]["weight_decay"])
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
