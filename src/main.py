@@ -6,7 +6,7 @@ from pathlib import Path
 from .futurelatents.models import LatentVideoModel
 from datasets.kinetics_400 import Kinetics400
 from utils.parser import create_parser
-from utils.config import load_config
+from utils.config import load_config, print_config
 import torch
 
 
@@ -16,6 +16,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(Path(args.config_path))
+    print_config(config)
     dataset = Kinetics400(config)
 
     model = LatentVideoModel(config)
