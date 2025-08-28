@@ -83,7 +83,8 @@ class LatentVideoModel(nn.Module):
         """Return parameter counts for sub-modules and the total.
 
         Each module's parameter count is printed as ``"<name>: <count>"`` and a
-        dictionary with the counts is returned.
+        dictionary with the counts is returned. Counts are formatted in groups of
+        three digits separated by spaces for readability.
         """
         counts: Dict[str, int] = {}
         counts["encoder"] = sum(p.numel() for p in self.encoder.parameters())
@@ -94,5 +95,6 @@ class LatentVideoModel(nn.Module):
         total = sum(counts.values())
         counts["total"] = total
         for name, num in counts.items():
-            print(f"{name}: {num} parameters")
+            formatted = f"{num:,}".replace(",", " ")
+            print(f"{name}: {formatted} parameters")
         return counts
