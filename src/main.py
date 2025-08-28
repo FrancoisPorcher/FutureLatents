@@ -4,7 +4,7 @@ import logging
 # Import the project package relative to this module so that running
 # ``python -m src.main`` works without requiring ``src`` on the
 # ``PYTHONPATH``.
-from .futurelatents.models import LatentVideoModel
+from models.latent_video_model import LatentVideoModel
 from datasets.kinetics_400 import Kinetics400
 from training.trainer import Trainer
 from utils.parser import create_parser
