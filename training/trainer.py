@@ -33,10 +33,6 @@ class Trainer:
         Optimiser responsible for updating the model parameters.
     scheduler:
         Optional learning rate scheduler stepped after each optimisation step.
-    device:
-        Device on which the model and input batches should be placed.  If
-        ``None`` the trainer will use ``"cuda"`` when available, otherwise
-        ``"cpu"``.
     """
 
     def __init__(
@@ -44,16 +40,10 @@ class Trainer:
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
-        device: Optional[str] = None,
         accelerator: Optional[Accelerator] = None,
     ) -> None:
         self.accelerator = accelerator
-        self.device = (
-            accelerator.device
-            if accelerator is not None
-            else device or ("cuda" if torch.cuda.is_available() else "cpu")
-        )
-        self.model = model.to(self.device)
+        self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.state = TrainState()
@@ -70,7 +60,7 @@ class Trainer:
         """
 
         self.model.train()
-        video = batch["video"].to(self.device)
+        video = batch["video"]
 
         if self.accelerator is not None:
             with self.accelerator.accumulate(self.model):
@@ -105,7 +95,7 @@ class Trainer:
         self.model.eval()
         total_loss = 0.0
         for batch in dataloader:
-            video = batch["video"].to(self.device)
+            video = batch["video"]
             outputs = self.model.encode_video(video)
             loss = outputs.last_hidden_state.mean()
             total_loss += loss.item()
