@@ -73,8 +73,7 @@ class Trainer:
 
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
-                model = self.accelerator.unwrap_model(self.model)
-                latents = model.encode_video_with_backbone(video)
+                latents = self.model(video=video)
                 noise = torch.randn_like(latents)
                 timesteps = torch.randint(
                     0,
@@ -130,12 +129,7 @@ class Trainer:
                 else nullcontext()
             )
             with ctx:
-                model = (
-                    self.accelerator.unwrap_model(self.model)
-                    if self.accelerator is not None
-                    else self.model
-                )
-                outputs = model.encode_video_with_backbone(video)
+                outputs = self.model(video=video)
             total_loss += outputs.mean().item()
         return total_loss / max(len(dataloader), 1)
 
