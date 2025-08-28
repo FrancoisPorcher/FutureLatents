@@ -37,15 +37,27 @@ def main() -> None:
     dataloader = torch.utils.data.DataLoader(
         dataset, shuffle=True, num_workers=num_workers
     )
-    
-    
+
+    gradient_accumulation_steps = int(
+        config["trainer"].get("gradient_accumulation_steps", 1)
+    )
+    find_unused_parameters = bool(
+        config["trainer"].get("find_unused_parameters", False)
+    )
+
     accelerator = Accelerator(
         gradient_accumulation_steps=gradient_accumulation_steps,
-        kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=find_unused_parameters)],
+        kwargs_handlers=[
+            DistributedDataParallelKwargs(
+                find_unused_parameters=find_unused_parameters
+            )
+        ],
     )
-    model, optimizer, dataloader, scheduler = accelerator.prepare(model, optimizer, dataloader, scheduler)
-    
-    trainer = Trainer(model, optimizer, scheduler)
+    model, optimizer, dataloader, scheduler = accelerator.prepare(
+        model, optimizer, dataloader, scheduler
+    )
+
+    trainer = Trainer(model, optimizer, scheduler, accelerator=accelerator)
     trainer.fit(dataloader)
 
 

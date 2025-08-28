@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 import torch
+from accelerate import Accelerator
 
 
 @dataclass
@@ -44,8 +45,14 @@ class Trainer:
         optimizer: torch.optim.Optimizer,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         device: Optional[str] = None,
+        accelerator: Optional[Accelerator] = None,
     ) -> None:
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.accelerator = accelerator
+        self.device = (
+            accelerator.device
+            if accelerator is not None
+            else device or ("cuda" if torch.cuda.is_available() else "cpu")
+        )
         self.model = model.to(self.device)
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -65,18 +72,30 @@ class Trainer:
         self.model.train()
         video = batch["video"].to(self.device)
 
-        # Forward pass through the encoder and compute a dummy loss.
-        features_video_encoded_with_backbone = self.model.encode_video_with_backbone(video)
-        batch['features_video_encoded_with_backbone'] = features_video_encoded_with_backbone
-        breakpoint()
-        loss = features_video_encoded_with_backbone.mean()
+        if self.accelerator is not None:
+            with self.accelerator.accumulate(self.model):
+                features_video_encoded_with_backbone = self.model.encode_video_with_backbone(video)
+                batch['features_video_encoded_with_backbone'] = features_video_encoded_with_backbone
+                breakpoint()
+                loss = features_video_encoded_with_backbone.mean()
+                self.accelerator.backward(loss)
+                self.optimizer.step()
+                if self.scheduler is not None:
+                    self.scheduler.step()
+                self.optimizer.zero_grad()
+        else:
+            # Forward pass through the encoder and compute a dummy loss.
+            features_video_encoded_with_backbone = self.model.encode_video_with_backbone(video)
+            batch['features_video_encoded_with_backbone'] = features_video_encoded_with_backbone
+            breakpoint()
+            loss = features_video_encoded_with_backbone.mean()
 
-        # Optimisation step
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        if self.scheduler is not None:
-            self.scheduler.step()
+            # Optimisation step
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
         return loss.item()
 
     def train_epoch(self, dataloader: Iterable[dict]) -> float:
