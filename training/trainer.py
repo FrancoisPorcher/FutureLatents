@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 import torch
-from torch.utils.data import DataLoader
 
 
 @dataclass
