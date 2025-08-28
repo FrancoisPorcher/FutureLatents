@@ -84,18 +84,7 @@ class Trainer:
                     self.scheduler.step()
                 self.optimizer.zero_grad()
         else:
-            # Forward pass through the encoder and compute a dummy loss.
-            features_video_encoded_with_backbone = self.model.encode_video_with_backbone(video)
-            batch['features_video_encoded_with_backbone'] = features_video_encoded_with_backbone
-            breakpoint()
-            loss = features_video_encoded_with_backbone.mean()
-
-            # Optimisation step
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            if self.scheduler is not None:
-                self.scheduler.step()
+            raise NotImplementedError("Trainer.train_step() only supports Accelerate for now.")
         return loss.item()
 
     def train_epoch(self, dataloader: Iterable[dict]) -> float:
