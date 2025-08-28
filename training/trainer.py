@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
+from contextlib import nullcontext
 
 import torch
 import torch.nn.functional as F
@@ -71,18 +72,19 @@ class Trainer:
             )
 
         with self.accelerator.accumulate(self.model):
-            latents = self.model.encode_video_with_backbone(video)
-            noise = torch.randn_like(latents)
-            timesteps = torch.randint(
-                0,
-                self.noise_scheduler.config.num_train_timesteps,
-                (latents.shape[0],),
-                device=latents.device,
-                dtype=torch.long,
-            )
-            noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
-            model_output = self.model(noisy_latents, timesteps)
-            loss = F.mse_loss(model_output, noise)
+            with self.accelerator.autocast():
+                latents = self.model.encode_video_with_backbone(video)
+                noise = torch.randn_like(latents)
+                timesteps = torch.randint(
+                    0,
+                    self.noise_scheduler.config.num_train_timesteps,
+                    (latents.shape[0],),
+                    device=latents.device,
+                    dtype=torch.long,
+                )
+                noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
+                model_output = self.model(noisy_latents, timesteps)
+                loss = F.mse_loss(model_output, noise)
             self.accelerator.backward(loss)
             self.optimizer.step()
             if self.scheduler is not None:
@@ -121,7 +123,13 @@ class Trainer:
         total_loss = 0.0
         for batch in dataloader:
             video = batch["video"]
-            outputs = self.model.encode_video_with_backbone(video)
+            ctx = (
+                self.accelerator.autocast()
+                if self.accelerator is not None
+                else nullcontext()
+            )
+            with ctx:
+                outputs = self.model.encode_video_with_backbone(video)
             total_loss += outputs.mean().item()
         return total_loss / max(len(dataloader), 1)
 
