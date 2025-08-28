@@ -96,9 +96,8 @@ class Trainer:
         total_loss = 0.0
         for batch in dataloader:
             video = batch["video"]
-            outputs = self.model.encode_video(video)
-            loss = outputs.last_hidden_state.mean()
-            total_loss += loss.item()
+            outputs = self.model.encode_video_with_backbone(video)
+            total_loss += outputs.mean().item()
         return total_loss / max(len(dataloader), 1)
 
     # ------------------------------------------------------------------
