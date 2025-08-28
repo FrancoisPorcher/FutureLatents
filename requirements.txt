@@ -6,3 +6,4 @@ pyyaml
 transformers
 omegaconf
 accelerate
+diffusers

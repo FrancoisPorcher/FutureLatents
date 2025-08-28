@@ -9,6 +9,8 @@ import logging
 import torch.nn as nn
 from transformers import AutoModel, AutoVideoProcessor
 
+from models.DiT import DiT
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,8 +33,10 @@ class LatentVideoModel(nn.Module):
         self.encoder = AutoModel.from_pretrained(hf_repo)
         # Use the original Hugging Face video preprocessor tied to the encoder
         self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
-        # Placeholder for future diffusion transformer component
-        self.diffusion_transformer = None
+        # Flow matching transformer component
+        fm_cfg = config.get("flow_matching", {})
+        dit_cfg = fm_cfg.get("dit", {})
+        self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
         # Configure whether the encoder should be trainable
         trainable = config.get("encoder_trainable", False)
         self.set_encoder_trainable(trainable)
@@ -66,6 +70,12 @@ class LatentVideoModel(nn.Module):
         bacbone_video_features = self.encoder.get_vision_features(inputs)  # [B, N_tokens, embed_dim] = [B, 8192, 1024]
         return bacbone_video_features
 
+    def forward(self, latents, timesteps):
+        """Run the flow transformer on latent tokens."""
+        if self.flow_transformer is None:
+            raise RuntimeError("Flow transformer is not initialised")
+        return self.flow_transformer(latents, timesteps)
+
     # ------------------------------------------------------------------
     # Introspection helpers
     # ------------------------------------------------------------------
@@ -77,9 +87,9 @@ class LatentVideoModel(nn.Module):
         """
         counts: Dict[str, int] = {}
         counts["encoder"] = sum(p.numel() for p in self.encoder.parameters())
-        if self.diffusion_transformer is not None:
-            counts["diffusion_transformer"] = sum(
-                p.numel() for p in self.diffusion_transformer.parameters()
+        if self.flow_transformer is not None:
+            counts["flow_transformer"] = sum(
+                p.numel() for p in self.flow_transformer.parameters()
             )
         total = sum(counts.values())
         counts["total"] = total
