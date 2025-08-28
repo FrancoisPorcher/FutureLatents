@@ -64,14 +64,17 @@ class LatentVideoModel(nn.Module):
     # ------------------------------------------------------------------
     # Forward helpers
     # ------------------------------------------------------------------
-    def encode_video_with_backbone(self, video):  # pragma: no cover - thin wrapper
-        """Preprocess and encode a batch of video frames."""
-        inputs = self.preprocessor(video, return_tensors="pt")["pixel_values_videos"]
-        bacbone_video_features = self.encoder.get_vision_features(inputs)  # [B, N_tokens, embed_dim] = [B, 8192, 1024]
-        return bacbone_video_features
+    def forward(self, latents=None, timesteps=None, video=None):
+        """Encode videos or run the flow transformer on latent tokens.
 
-    def forward(self, latents, timesteps):
-        """Run the flow transformer on latent tokens."""
+        When ``video`` is provided, it is preprocessed and passed through the
+        backbone encoder and the resulting features are returned. Otherwise the
+        ``latents`` and ``timesteps`` are processed by the flow transformer.
+        """
+        if video is not None:
+            inputs = self.preprocessor(video, return_tensors="pt")["pixel_values_videos"]
+            return self.encoder.get_vision_features(inputs)
+
         if self.flow_transformer is None:
             raise RuntimeError("Flow transformer is not initialised")
         return self.flow_transformer(latents, timesteps)
