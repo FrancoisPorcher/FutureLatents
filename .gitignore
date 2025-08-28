@@ -19,8 +19,6 @@ venv/
 # Data and model artifacts
 /data/
 !/data/README.md
-/models/
-!/models/README.md
 
 # IDEs and editors
 .vscode/
