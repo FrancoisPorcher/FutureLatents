@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 
 # Import the project package relative to this module so that running
 # ``python -m src.main`` works without requiring ``src`` on the
@@ -58,8 +59,13 @@ def main() -> None:
         model, optimizer, dataloader, scheduler
     )
 
-    trainer = Trainer(model, optimizer, scheduler, accelerator=accelerator)
-    trainer.fit(dataloader)
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    trainer = Trainer(model, optimizer, scheduler, accelerator=accelerator, logger=logger)
+
+    eval_every = int(config.get("evaluation", {}).get("eval_every", 1))
+    trainer.fit(dataloader, epochs=1, eval_every=eval_every)
 
 
 if __name__ == "__main__":

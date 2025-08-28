@@ -2,4 +2,5 @@ inherits:
   - datasets/kinetics_400.yaml
   - backbones/vjepa2.yaml
   - training/trainer.yaml
+  - training/evaluation.yaml
 encoder_trainable: false
