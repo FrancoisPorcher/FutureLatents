@@ -22,7 +22,6 @@ def main() -> None:
     model = LatentVideoModel(config)
     
     model.count_parameters()
-    breakpoint()
     
     learning_rate = float(config["trainer"]["learning_rate"])
     weight_decay = float(config["trainer"]["weight_decay"])

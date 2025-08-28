@@ -5,3 +5,4 @@ torch
 pyyaml
 transformers
 omegaconf
+accelerate
