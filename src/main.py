@@ -12,6 +12,7 @@ from utils.config import load_config, print_config
 import torch
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
+from diffusers import DDPMScheduler
 
 
 def main() -> None:
@@ -39,6 +40,11 @@ def main() -> None:
         dataset, shuffle=True, num_workers=num_workers
     )
 
+    num_train_timesteps = int(
+        config.get("flow_matching", {}).get("num_train_timesteps", 1000)
+    )
+    noise_scheduler = DDPMScheduler(num_train_timesteps=num_train_timesteps)
+
     gradient_accumulation_steps = int(
         config["trainer"].get("gradient_accumulation_steps", 1)
     )
@@ -62,7 +68,14 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    trainer = Trainer(model, optimizer, scheduler, accelerator=accelerator, logger=logger)
+    trainer = Trainer(
+        model,
+        optimizer,
+        scheduler,
+        noise_scheduler=noise_scheduler,
+        accelerator=accelerator,
+        logger=logger,
+    )
 
     eval_every = int(config.get("evaluation", {}).get("eval_every", 1))
     trainer.fit(dataloader, epochs=1, eval_every=eval_every)
