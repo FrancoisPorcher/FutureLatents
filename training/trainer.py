@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import torch
+import torch.nn.functional as F
 from accelerate import Accelerator
+from diffusers import DDPMScheduler
 import logging
 
 
@@ -42,6 +44,7 @@ class Trainer:
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+        noise_scheduler: Optional[DDPMScheduler] = None,
         accelerator: Optional[Accelerator] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
@@ -49,6 +52,7 @@ class Trainer:
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.noise_scheduler = noise_scheduler
         self.state = TrainState()
         self.logger = logger or logging.getLogger(__name__)
 
@@ -56,29 +60,34 @@ class Trainer:
     # Training utilities
     # ------------------------------------------------------------------
     def train_step(self, batch: dict) -> float:
-        """Perform a single optimisation step.
-
-        The example loss used here simply averages the encoder output of the
-        provided video batch.  Real projects are expected to replace this with a
-        task specific objective.
-        """
+        """Perform a single optimisation step using flow matching."""
 
         self.model.train()
         video = batch["video"]
 
-        if self.accelerator is not None:
-            with self.accelerator.accumulate(self.model):
-                features_video_encoded_with_backbone = self.model.encode_video_with_backbone(video)
-                batch['features_video_encoded_with_backbone'] = features_video_encoded_with_backbone
-                breakpoint()
-                loss = features_video_encoded_with_backbone.mean()
-                self.accelerator.backward(loss)
-                self.optimizer.step()
-                if self.scheduler is not None:
-                    self.scheduler.step()
-                self.optimizer.zero_grad()
-        else:
-            raise NotImplementedError("Trainer.train_step() only supports Accelerate for now.")
+        if self.accelerator is None or self.noise_scheduler is None:
+            raise NotImplementedError(
+                "Trainer.train_step() requires an accelerator and noise scheduler."
+            )
+
+        with self.accelerator.accumulate(self.model):
+            latents = self.model.encode_video_with_backbone(video)
+            noise = torch.randn_like(latents)
+            timesteps = torch.randint(
+                0,
+                self.noise_scheduler.config.num_train_timesteps,
+                (latents.shape[0],),
+                device=latents.device,
+                dtype=torch.long,
+            )
+            noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
+            model_output = self.model(noisy_latents, timesteps)
+            loss = F.mse_loss(model_output, noise)
+            self.accelerator.backward(loss)
+            self.optimizer.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
+            self.optimizer.zero_grad()
         return loss.item()
 
     def train_epoch(self, dataloader: Iterable[dict]) -> float:
