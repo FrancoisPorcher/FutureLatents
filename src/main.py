@@ -41,8 +41,9 @@ def main() -> None:
     )
 
     num_train_timesteps = int(
-        config.get("flow_matching", {}).get("num_train_timesteps", 1000)
+        config['flow_matching'].get("num_train_timesteps", 1000)
     )
+    breakpoint()
     noise_scheduler = DDPMScheduler(num_train_timesteps=num_train_timesteps)
 
     gradient_accumulation_steps = int(

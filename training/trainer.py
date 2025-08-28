@@ -64,7 +64,7 @@ class Trainer:
 
         self.model.train()
         video = batch["video"]
-
+        breakpoint()
         if self.accelerator is None or self.noise_scheduler is None:
             raise NotImplementedError(
                 "Trainer.train_step() requires an accelerator and noise scheduler."

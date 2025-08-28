@@ -1,5 +1,5 @@
 flow_matching:
-  num_train_timesteps: 1000
+  num_train_timesteps: 500
   dit:
     input_dim: 1024
     hidden_dim: 1024
