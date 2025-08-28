@@ -64,7 +64,6 @@ class Trainer:
 
         self.model.train()
         video = batch["video"]
-        breakpoint()
         if self.accelerator is None or self.noise_scheduler is None:
             raise NotImplementedError(
                 "Trainer.train_step() requires an accelerator and noise scheduler."
@@ -82,6 +81,7 @@ class Trainer:
             )
             noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
             model_output = self.model(noisy_latents, timesteps)
+            breakpoint()
             loss = F.mse_loss(model_output, noise)
             self.accelerator.backward(loss)
             self.optimizer.step()

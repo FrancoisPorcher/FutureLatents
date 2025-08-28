@@ -1,21 +1,9 @@
 # FutureLatents
 
-FutureLatents explores world models that predict future visual representations directly in latent space.
-It currently provides a minimal PyTorch code base built around pretrained video encoders from Hugging Face
-and utilities for loading video datasets and composing experiment configurations.
+FutureLatents explores world models that predict future visual representations directly in latent space, conditioned (or not), on previous video frames.
 
-## Features
+It currently supports VJEPA2 backbone, and Kinetics 400 dataset. Will soon support DinoV3 and 4DS backbones, and Kinetics 700, WISA, Something Something V2 datasets.
 
-- **Latent video model** – wraps a Hugging Face encoder and associated `AutoVideoProcessor` so that
-  preprocessing and encoding remain coupled. The encoder is frozen by default but can be unfrozen to
-  finetune specific modules.
-- **Config system** – YAML configurations are loaded with [OmegaConf](https://omegaconf.readthedocs.io/en/latest/)
-  and support simple inheritance via an `inherits` list. Later configs override earlier ones with a notice for
-  conflicting keys.
-- **Kinetics‑400 dataset loader** – reads annotation CSV files and returns videos as padded frame tensors using
-  [decord](https://github.com/dmlc/decord) for efficient video access.
-- **Training utilities** – example scripts show how to construct optimisers over only the trainable parameters
-  and print parameter counts for inspection.
 
 ## Installation
 
@@ -68,8 +56,3 @@ python -m training.main
 
 Both commands expect that the Kinetics‑400 annotation CSV path in
 `configs/datasets/kinetics_400.yaml` points to a valid location.
-
-## Data
-
-The repository does not track datasets or model checkpoints. Provide paths to your local copies in
-the configuration files.
