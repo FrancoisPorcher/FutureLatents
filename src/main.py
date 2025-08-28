@@ -51,9 +51,11 @@ def main() -> None:
     find_unused_parameters = bool(
         config["trainer"].get("find_unused_parameters", False)
     )
+    mixed_precision = str(config["trainer"].get("mixed_precision", "no"))
 
     accelerator = Accelerator(
         gradient_accumulation_steps=gradient_accumulation_steps,
+        mixed_precision=mixed_precision,
         kwargs_handlers=[
             DistributedDataParallelKwargs(
                 find_unused_parameters=find_unused_parameters

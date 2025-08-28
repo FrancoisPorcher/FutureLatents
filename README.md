@@ -43,6 +43,10 @@ encoder_trainable: false
 
 Run `utils.config.load_config` to resolve the hierarchy and `utils.config.print_config` to display it.
 
+The training configuration additionally supports a `mixed_precision` field
+(`"no"`, `"fp16"` or `"bf16"`) that is forwarded to the Hugging Face
+`Accelerator` for mixed precision training.
+
 ### Flow matching
 
 Flow matching follows the diffusive modelling paradigm where latent tokens are
