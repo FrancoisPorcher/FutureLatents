@@ -9,6 +9,8 @@ from training.trainer import Trainer
 from utils.parser import create_parser
 from utils.config import load_config, print_config
 import torch
+from accelerate import Accelerator
+from accelerate.utils import DistributedDataParallelKwargs
 
 
 def main() -> None:
@@ -35,7 +37,14 @@ def main() -> None:
     dataloader = torch.utils.data.DataLoader(
         dataset, shuffle=True, num_workers=num_workers
     )
-
+    
+    
+    accelerator = Accelerator(
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=find_unused_parameters)],
+    )
+    model, optimizer, dataloader, scheduler = accelerator.prepare(model, optimizer, dataloader, scheduler)
+    
     trainer = Trainer(model, optimizer, scheduler)
     trainer.fit(dataloader)
 

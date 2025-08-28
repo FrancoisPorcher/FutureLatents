@@ -66,8 +66,10 @@ class Trainer:
         video = batch["video"].to(self.device)
 
         # Forward pass through the encoder and compute a dummy loss.
-        outputs = self.model.encode_video(video)
-        loss = outputs.last_hidden_state.mean()
+        features_video_encoded_with_backbone = self.model.encode_video_with_backbone(video)
+        batch['features_video_encoded_with_backbone'] = features_video_encoded_with_backbone
+        breakpoint()
+        loss = features_video_encoded_with_backbone.mean()
 
         # Optimisation step
         self.optimizer.zero_grad()

@@ -53,10 +53,11 @@ class LatentVideoModel(nn.Module):
     # ------------------------------------------------------------------
     # Forward helpers
     # ------------------------------------------------------------------
-    def encode_video(self, video):  # pragma: no cover - thin wrapper
+    def encode_video_with_backbone(self, video):  # pragma: no cover - thin wrapper
         """Preprocess and encode a batch of video frames."""
-        inputs = self.preprocessor(video, return_tensors="pt")
-        return self.encoder(inputs["pixel_values"])
+        inputs = self.preprocessor(video, return_tensors="pt")["pixel_values_videos"]
+        bacbone_video_features = self.encoder.get_vision_features(inputs)  # [B, N_tokens, embed_dim] = [B, 8192, 1024]
+        return bacbone_video_features
 
     # ------------------------------------------------------------------
     # Introspection helpers
