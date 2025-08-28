@@ -19,6 +19,7 @@ It currently supports VJEPA2 backbone, and Kinetics 400 dataset. Will soon suppo
 ```
 configs/   YAML experiment configuration files
 datasets/  Dataset wrappers such as Kinetics‑400
+models/    Model components including the flow transformer
 src/       Core library code and entry point
 training/  Minimal training script
 notebooks/ Exploratory notebooks (empty placeholder)
@@ -27,17 +28,29 @@ notebooks/ Exploratory notebooks (empty placeholder)
 ## Configuration
 
 Configurations can be composed using the `inherits` key. For example
-`configs/vjepa2_kinetics_400.yaml` combines dataset, backbone and training settings:
+`configs/vjepa2_kinetics_400.yaml` combines dataset, backbone, training, evaluation
+and flow‑matching settings:
 
 ```yaml
 inherits:
   - datasets/kinetics_400.yaml
   - backbones/vjepa2.yaml
   - training/trainer.yaml
+  - training/evaluation.yaml
+  - training/flow_matching.yaml
 encoder_trainable: false
 ```
 
 Run `utils.config.load_config` to resolve the hierarchy and `utils.config.print_config` to display it.
+
+### Flow matching
+
+Flow matching follows the diffusive modelling paradigm where latent tokens are
+incrementally noised and denoised.  The `training/flow_matching.yaml` file
+provides the number of training timesteps and the configuration for the
+diffusion transformer (DiT) used to predict the noise at each step.  The
+`LatentVideoModel` reads these values from the `flow_matching` section to build
+its internal DiT module.
 
 ## Usage
 
