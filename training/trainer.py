@@ -15,6 +15,7 @@ from typing import Iterable, Optional
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
+from accelerate.utils import tqdm
 from diffusers import DDPMScheduler
 import logging
 
@@ -81,7 +82,6 @@ class Trainer:
             )
             noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
             model_output = self.model(noisy_latents, timesteps)
-            breakpoint()
             loss = F.mse_loss(model_output, noise)
             self.accelerator.backward(loss)
             self.optimizer.step()
@@ -94,8 +94,20 @@ class Trainer:
         """Iterate over ``dataloader`` once and return the mean loss."""
 
         total_loss = 0.0
-        for batch in dataloader:
+        disable = (
+            self.accelerator is not None
+            and not self.accelerator.is_local_main_process
+        )
+        progress_bar = tqdm(
+            dataloader,
+            disable=disable,
+            desc=f"Epoch {self.state.epoch + 1}",
+        )
+        for batch in progress_bar:
             total_loss += self.train_step(batch)
+            progress_bar.set_postfix(
+                loss=total_loss / max(progress_bar.n, 1), refresh=False
+            )
         return total_loss / max(len(dataloader), 1)
 
     # ------------------------------------------------------------------
