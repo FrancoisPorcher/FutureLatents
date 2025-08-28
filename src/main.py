@@ -54,12 +54,10 @@ def main() -> None:
         ],
     )
     
-    breakpoint()
     model, optimizer, dataloader, scheduler = accelerator.prepare(
         model, optimizer, dataloader, scheduler
     )
 
-    breakpoint()
     trainer = Trainer(model, optimizer, scheduler, accelerator=accelerator)
     trainer.fit(dataloader)
 

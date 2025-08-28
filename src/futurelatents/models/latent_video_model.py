@@ -77,5 +77,5 @@ class LatentVideoModel(nn.Module):
         total = sum(counts.values())
         counts["total"] = total
         for name, num in counts.items():
-            print(f"{name}: {num}")
+            print(f"{name}: {num} parameters")
         return counts
