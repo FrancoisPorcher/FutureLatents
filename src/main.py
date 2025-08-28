@@ -30,6 +30,7 @@ def main() -> None:
     )
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
     
+    dataloader = torch.utils.data.DataLoader(dataset, shuffle=True, num_workers=num_workers)
 
 
 if __name__ == "__main__":
