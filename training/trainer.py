@@ -77,7 +77,7 @@ class Trainer:
             self.scheduler.step()
         return loss.item()
 
-    def train_epoch(self, dataloader: DataLoader) -> float:
+    def train_epoch(self, dataloader: Iterable[dict]) -> float:
         """Iterate over ``dataloader`` once and return the mean loss."""
 
         total_loss = 0.0
@@ -89,7 +89,7 @@ class Trainer:
     # Validation utilities
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def val(self, dataloader: DataLoader) -> float:
+    def val(self, dataloader: Iterable[dict]) -> float:
         """Evaluate the model on ``dataloader`` and return the mean loss."""
 
         self.model.eval()
@@ -106,8 +106,8 @@ class Trainer:
     # ------------------------------------------------------------------
     def fit(
         self,
-        train_loader: DataLoader,
-        val_loader: Optional[DataLoader] = None,
+        train_loader: Iterable[dict],
+        val_loader: Optional[Iterable[dict]] = None,
         epochs: int = 1,
     ) -> None:
         """Run the training loop for ``epochs`` epochs."""
