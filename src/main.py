@@ -5,7 +5,7 @@ import logging
 # ``python -m src.main`` works without requiring ``src`` on the
 # ``PYTHONPATH``.
 from models.latent_video_model import LatentVideoModel
-from datasets.kinetics_400 import Kinetics400
+from datasets import build_dataset
 from training.trainer import Trainer
 from utils.parser import create_parser
 from utils.config import load_config, print_config
@@ -22,7 +22,7 @@ def main() -> None:
 
     config = load_config(Path(args.config_path))
     print_config(config)
-    dataset = Kinetics400(config)
+    dataset = build_dataset(config)
 
     model = LatentVideoModel(config)
 
