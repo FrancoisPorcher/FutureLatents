@@ -1,0 +1,7 @@
+inherits:
+  - datasets/kinetics_400_cached.yaml
+  - backbones/vjepa2.yaml
+  - training/trainer.yaml
+  - training/evaluation.yaml
+  - training/flow_matching.yaml
+encoder_trainable: false
