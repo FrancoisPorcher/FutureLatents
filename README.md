@@ -2,7 +2,7 @@
 
 FutureLatents explores world models that predict future visual representations directly in latent space, conditioned (or not), on previous video frames.
 
-It currently supports VJEPA2 backbone, and Kinetics 400 dataset. Will soon support DinoV3 and 4DS backbones, and Kinetics 700, WISA, Something Something V2 datasets.
+It currently supports VJEPA2 backbone and the Kinetics 400 dataset, and also provides a `Kinetics400_cached` variant for training on pre-computed embeddings. Will soon support DinoV3 and 4DS backbones, and Kinetics 700, WISA, Something Something V2 datasets.
 
 
 ## Installation
@@ -18,7 +18,7 @@ It currently supports VJEPA2 backbone, and Kinetics 400 dataset. Will soon suppo
 
 ```
 configs/   YAML experiment configuration files
-datasets/  Dataset wrappers such as Kinetics‑400
+datasets/  Dataset wrappers such as Kinetics‑400 and Kinetics‑400 cached
 models/    Model components including the flow transformer
 src/       Core library code and entry point
 training/  Minimal training script
@@ -72,4 +72,14 @@ python -m training.main
 ```
 
 Both commands expect that the Kinetics‑400 annotation CSV path in
-`configs/datasets/kinetics_400.yaml` points to a valid location.
+`configs/datasets/kinetics_400.yaml` points to a valid location. When using cached embeddings, make sure `configs/datasets/kinetics_400_cached.yaml` references a metadata CSV describing the saved embeddings.
+
+### Pre-computed embeddings
+
+If you have already encoded your videos, the repository can train directly on cached features using the `Kinetics400Cached` dataset. The `configs/datasets/kinetics_400_cached.yaml` file expects a metadata CSV where each row contains a path (in the `out_path` column by default) to a saved embedding tensor. Running with
+
+```bash
+python -m src.main --config_path configs/vjepa2_kinetics_400_cached.yaml
+```
+
+will load those embeddings with `torch.load` and bypass raw video decoding.
