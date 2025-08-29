@@ -23,7 +23,6 @@ def main() -> None:
     config = load_config(Path(args.config_path))
     print_config(config)
     dataset = build_dataset(config)
-    breakpoint()
 
     model = LatentVideoModel(config)
 

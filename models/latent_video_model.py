@@ -36,9 +36,11 @@ class LatentVideoModel(nn.Module):
             self.encoder = AutoModel.from_pretrained(hf_repo)
             # Use the original Hugging Face video preprocessor tied to the encoder
             self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
+            logger.info(f"Loaded backbone encoder from {hf_repo}")
         else:
             self.encoder = None
             self.preprocessor = None
+            logger.info("No backbone encoder, operating directly on latents")
         # Flow matching transformer component
         fm_cfg = config.get("flow_matching", {})
         dit_cfg = fm_cfg.get("dit", {})

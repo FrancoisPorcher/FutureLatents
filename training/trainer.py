@@ -65,6 +65,8 @@ class Trainer:
         """Perform a single optimisation step using flow matching."""
 
         self.model.train()
+        print(batch.keys())
+        breakpoint()
         video = batch["video"]
         if self.accelerator is None or self.noise_scheduler is None:
             raise NotImplementedError(
