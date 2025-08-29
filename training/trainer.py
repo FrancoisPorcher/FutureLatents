@@ -65,9 +65,6 @@ class Trainer:
         """Perform a single optimisation step using flow matching."""
 
         self.model.train()
-        print(batch.keys())
-        breakpoint()
-        video = batch["video"]
         if self.accelerator is None or self.noise_scheduler is None:
             raise NotImplementedError(
                 "Trainer.train_step() requires an accelerator and noise scheduler."
@@ -75,7 +72,7 @@ class Trainer:
 
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
-                latents = self.model(video=video)
+                latents = self.model(inputs=batch)
                 noise = torch.randn_like(latents)
                 timesteps = torch.randint(
                     0,
