@@ -1,6 +1,5 @@
 datasets:
   kinetics_400_cached:
-    repeat: 1
     path_col: out_path
     paths:
-      metadata: /path/to/kinetics400_cached_metadata.csv
+      metadata: /private/home/francoisporcher/kinetics_400_embeddings_vjepa2_vitl_fpc64_256/manifest.csv

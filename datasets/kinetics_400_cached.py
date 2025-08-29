@@ -24,7 +24,6 @@ class Kinetics400Cached(Dataset):
         cfg = config["datasets"]["kinetics_400_cached"]
         self.metadata_path = str(cfg["paths"]["metadata"])
         self.path_col = str(cfg.get("path_col", "out_path"))
-        self.repeat = int(cfg.get("repeat", 1))
 
         self.df_metadata = pd.read_csv(self.metadata_path)
         self.metadata_list_dict = [
@@ -34,7 +33,7 @@ class Kinetics400Cached(Dataset):
             raise ValueError(f"Empty dataset found in {self.metadata_path}")
 
     def __len__(self) -> int:  # pragma: no cover - simple wrapper
-        return len(self.metadata_list_dict) * self.repeat
+        return len(self.metadata_list_dict)
 
     def _resolve_index(self, idx: int) -> int:
         return idx % len(self.metadata_list_dict)
