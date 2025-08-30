@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+from omegaconf import DictConfig
 
 from .kinetics_400 import Kinetics400
 from .kinetics_400_cached import Kinetics400Cached
@@ -13,7 +14,7 @@ _DATASETS = {
 }
 
 
-def build_dataset(config: Dict[str, Any]):
+def build_dataset(config: DictConfig):
     """Build a dataset from a configuration dictionary.
 
     The configuration must contain a single entry under the ``datasets`` key
@@ -21,11 +22,11 @@ def build_dataset(config: Dict[str, Any]):
     appropriate dataset class.
     """
 
-    datasets_cfg = config.get("datasets", {})
+    datasets_cfg = config.DATASETS
     if len(datasets_cfg) != 1:
         raise ValueError("Config must contain exactly one dataset specification")
 
-    name = next(iter(datasets_cfg))
+    name = next(iter(datasets_cfg)).lower()
     if name not in _DATASETS:
         raise ValueError(f"Unsupported dataset: {name}")
 

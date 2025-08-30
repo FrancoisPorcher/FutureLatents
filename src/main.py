@@ -28,30 +28,24 @@ def main() -> None:
 
     model.count_parameters()
 
-    learning_rate = float(config["trainer"]["learning_rate"])
-    weight_decay = float(config["trainer"]["weight_decay"])
+    learning_rate = float(config.TRAINER.LEARNING_RATE)
+    weight_decay = float(config.TRAINER.WEIGHT_DECAY)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
 
-    num_workers = int(config["trainer"]["num_workers"])
+    num_workers = int(config.TRAINER.NUM_WORKERS)
     dataloader = torch.utils.data.DataLoader(
         dataset, shuffle=True, num_workers=num_workers
     )
 
-    num_train_timesteps = int(
-        config['flow_matching'].get("num_train_timesteps", 1000)
-    )
+    num_train_timesteps = int(config.FLOW_MATCHING.NUM_TRAIN_TIMESTEPS)
     noise_scheduler = DDPMScheduler(num_train_timesteps=num_train_timesteps)
 
-    gradient_accumulation_steps = int(
-        config["trainer"].get("gradient_accumulation_steps", 1)
-    )
-    find_unused_parameters = bool(
-        config["trainer"].get("find_unused_parameters", False)
-    )
-    mixed_precision = str(config["trainer"].get("mixed_precision", "no"))
+    gradient_accumulation_steps = int(config.TRAINER.GRADIENT_ACCUMULATION_STEPS)
+    find_unused_parameters = bool(config.TRAINER.FIND_UNUSED_PARAMETERS)
+    mixed_precision = str(config.TRAINER.MIXED_PRECISION)
 
     accelerator = Accelerator(
         gradient_accumulation_steps=gradient_accumulation_steps,
@@ -79,7 +73,7 @@ def main() -> None:
         logger=logger,
     )
 
-    eval_every = int(config.get("evaluation", {}).get("eval_every", 1))
+    eval_every = int(config.EVALUATION.EVAL_EVERY)
     trainer.fit(dataloader, epochs=1, eval_every=eval_every)
 
 
