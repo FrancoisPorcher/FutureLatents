@@ -48,9 +48,9 @@ class Kinetics400(Dataset):
 
     def __init__(self, config) -> None:
         self.config = config
-        self.csv_path = str(config["datasets"]["kinetics_400"]["paths"]["csv"])
-        self.n_frame = int(config["datasets"]["kinetics_400"]["n_frame"])
-        self.stride = int(config["datasets"]["kinetics_400"]["stride"])
+        self.csv_path = str(config.DATASETS.KINETICS_400.PATHS.CSV)
+        self.n_frame = int(config.DATASETS.KINETICS_400.N_FRAME)
+        self.stride = int(config.DATASETS.KINETICS_400.STRIDE)
         self.dataframe = pd.read_csv(self.csv_path, header=None, names=["video_path", "index"], sep=" ")
 
     def __len__(self) -> int:  # pragma: no cover - simple wrapper

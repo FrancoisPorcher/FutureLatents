@@ -1,7 +1,8 @@
 from pathlib import Path
-from typing import Any, Dict
 
-from omegaconf import OmegaConf
+from typing import Any
+
+from omegaconf import DictConfig, ListConfig, OmegaConf
 
 
 def _merge_with_conflict(base: OmegaConf, override: OmegaConf) -> OmegaConf:
@@ -12,7 +13,17 @@ def _merge_with_conflict(base: OmegaConf, override: OmegaConf) -> OmegaConf:
     return OmegaConf.merge(base, override)
 
 
-def load_config(path: Path) -> Dict[str, Any]:
+def _uppercase_keys(cfg: Any) -> Any:
+    """Recursively convert all mapping keys to upper case."""
+    if isinstance(cfg, DictConfig):
+        data = {k.upper(): _uppercase_keys(v) for k, v in cfg.items()}
+        return OmegaConf.create(data)
+    if isinstance(cfg, ListConfig):
+        return OmegaConf.create([_uppercase_keys(v) for v in cfg])
+    return cfg
+
+
+def load_config(path: Path) -> DictConfig:
     """Load YAML configuration with support for simple file inheritance.
 
     The YAML file may contain an ``inherits`` list of relative file paths. These
@@ -24,20 +35,13 @@ def load_config(path: Path) -> Dict[str, Any]:
     merged = OmegaConf.create()
     for rel in inherits:
         sub_path = (path.parent / rel).resolve()
-        sub_cfg = OmegaConf.create(load_config(sub_path))
+        sub_cfg = load_config(sub_path)
         merged = _merge_with_conflict(merged, sub_cfg)
     merged = _merge_with_conflict(merged, cfg)
-    return OmegaConf.to_container(merged, resolve=True)
+    return _uppercase_keys(merged)
 
 
-def print_config(config: Dict[str, Any]) -> None:
-    """Print a resolved configuration in YAML format.
+def print_config(config: DictConfig) -> None:
+    """Print a resolved configuration in YAML format."""
 
-    Parameters
-    ----------
-    config : Dict[str, Any]
-        Configuration dictionary as returned by :func:`load_config`.
-    """
-
-    conf = OmegaConf.create(config)
-    print(OmegaConf.to_yaml(conf))
+    print(OmegaConf.to_yaml(config))
