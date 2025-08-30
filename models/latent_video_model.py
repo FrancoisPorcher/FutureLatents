@@ -87,7 +87,6 @@ class LatentVideoModel(nn.Module):
         is provided, no encoder may be initialised since the features are
         assumed to be pre-computed.
         """
-
         if "video" in inputs:
             if self.encoder is None:
                 raise ValueError(
@@ -120,6 +119,7 @@ class LatentVideoModel(nn.Module):
             raise ValueError(
                 "`latents` and `timesteps` must be provided"
             )
+            
         if self.flow_transformer is None:
             raise RuntimeError("Flow transformer is not initialised")
         return self.flow_transformer(latents, timesteps)
