@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 
 def timestep_embedding(timesteps: torch.Tensor, dim: int) -> torch.Tensor:
@@ -70,11 +71,13 @@ class DiT(nn.Module):
         num_heads: int,
         mlp_ratio: float = 4.0,
         max_time_embeddings: int = 1000,
+        gradient_checkpointing: bool = False,
     ) -> None:
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.max_time_embeddings = max_time_embeddings
+        self.gradient_checkpointing = gradient_checkpointing
 
         self.in_proj = nn.Linear(input_dim, hidden_dim)
         self.time_mlp = nn.Sequential(
@@ -96,7 +99,10 @@ class DiT(nn.Module):
         x = self.in_proj(x)
         x = x + t_emb[:, None, :]
         for block in self.blocks:
-            x = block(x)
+            if self.gradient_checkpointing:
+                x = checkpoint(block, x)
+            else:
+                x = block(x)
         x = self.norm(x)
         x = self.out_proj(x)
         return x

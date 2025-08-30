@@ -5,3 +5,4 @@ trainer:
   gradient_accumulation_steps: 1
   find_unused_parameters: false
   mixed_precision: bf16
+  gradient_checkpointing: false
