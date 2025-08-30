@@ -44,6 +44,9 @@ class LatentVideoModel(nn.Module):
         # Flow matching transformer component
         fm_cfg = config.FLOW_MATCHING
         dit_cfg = getattr(fm_cfg, "DIT", None) or {}
+        # Config files may specify DIT parameters using upper-case keys.
+        # Normalize keys to match the DiT constructor signature.
+        dit_cfg = {k.lower(): v for k, v in dit_cfg.items()}
         self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
         # Configure whether the encoder should be trainable
         trainable = config.ENCODER_TRAINABLE
