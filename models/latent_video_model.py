@@ -78,29 +78,48 @@ class LatentVideoModel(nn.Module):
     # ------------------------------------------------------------------
     # Forward helpers
     # ------------------------------------------------------------------
-    def forward(self, latents=None, timesteps=None, inputs=None):
-        """Encode videos or run the flow transformer on latent tokens.
+    def encode_inputs(self, inputs: Dict[str, Any]):
+        """Return latent representations extracted from ``inputs``.
 
-        When ``inputs`` is provided and a backbone encoder is available, the
-        video is first preprocessed and encoded into latent features. In all
-        other cases the inputs are assumed to already be latent tokens and are
-        passed directly to the flow transformer.
+        ``inputs`` must contain either ``"video"`` frames or an ``"embedding``
+        tensor.  If raw video is supplied an encoder must be available and the
+        frames are preprocessed before feature extraction.  When ``embedding``
+        is provided, no encoder may be initialised since the features are
+        assumed to be pre-computed.
         """
-        
-        # check if video is in inputs, and if encoder is available. Then we need to encode the video
-        if "video" in inputs and self.encoder is not None:
-            inputs = self.preprocessor(inputs["video"], return_tensors="pt")[
+
+        if "video" in inputs:
+            if self.encoder is None:
+                raise ValueError(
+                    "`video` provided in inputs but no encoder is initialised"
+                )
+            video = self.preprocessor(inputs["video"], return_tensors="pt")[
                 "pixel_values_videos"
             ]
-            latents = self.encoder.get_vision_features(inputs)
-            
-        # else, check that we have latents
-        elif "embedding" in inputs and self.encoder is None:
-            latents = inputs["embedding"]
-            
-        else:
-            # write message error. If we have a video in input and no encoder, error. If we have embedding in inputs, and an encoder, then error because we are supposed to have no encoder.
+            return self.encoder.get_vision_features(video)
+        if "embedding" in inputs:
+            if self.encoder is not None:
+                raise ValueError(
+                    "`embedding` provided in inputs but encoder is initialised; remove the encoder to use cached embeddings"
+                )
+            return inputs["embedding"]
+        raise ValueError("`inputs` must contain either 'video' or 'embedding'")
 
+    def forward(self, latents=None, timesteps=None, inputs=None):
+        """Run the flow transformer on latent tokens.
+
+        The model can either operate directly on ``latents`` or extract them
+        from ``inputs`` using :meth:`encode_inputs`.  In both cases ``timesteps``
+        must be provided to drive the flow transformer.
+        """
+
+        if inputs is not None:
+            latents = self.encode_inputs(inputs)
+
+        if latents is None or timesteps is None:
+            raise ValueError(
+                "`latents` and `timesteps` must be provided"
+            )
         if self.flow_transformer is None:
             raise RuntimeError("Flow transformer is not initialised")
         return self.flow_transformer(latents, timesteps)
