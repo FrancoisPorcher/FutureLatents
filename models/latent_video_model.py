@@ -78,21 +78,28 @@ class LatentVideoModel(nn.Module):
     # ------------------------------------------------------------------
     # Forward helpers
     # ------------------------------------------------------------------
-    def forward(self, latents=None, timesteps=None, video=None):
+    def forward(self, latents=None, timesteps=None, inputs=None):
         """Encode videos or run the flow transformer on latent tokens.
 
-        When ``video`` is provided and a backbone encoder is available, the
+        When ``inputs`` is provided and a backbone encoder is available, the
         video is first preprocessed and encoded into latent features. In all
         other cases the inputs are assumed to already be latent tokens and are
         passed directly to the flow transformer.
         """
-        if video is not None and self.encoder is not None:
-            inputs = self.preprocessor(video, return_tensors="pt")[
+        
+        # check if video is in inputs, and if encoder is available. Then we need to encode the video
+        if "video" in inputs and self.encoder is not None:
+            inputs = self.preprocessor(inputs["video"], return_tensors="pt")[
                 "pixel_values_videos"
             ]
             latents = self.encoder.get_vision_features(inputs)
-        elif video is not None:
-            latents = video
+            
+        # else, check that we have latents
+        elif "embedding" in inputs and self.encoder is None:
+            latents = inputs["embedding"]
+            
+        else:
+            # write message error. If we have a video in input and no encoder, error. If we have embedding in inputs, and an encoder, then error because we are supposed to have no encoder.
 
         if self.flow_transformer is None:
             raise RuntimeError("Flow transformer is not initialised")
