@@ -48,7 +48,6 @@ class LatentVideoModel(nn.Module):
         # Normalize keys to match the DiT constructor signature.
         dit_cfg = {k.lower(): v for k, v in dit_cfg.items()}
         gc = config.TRAINER.GRADIENT_CHECKPOINTING
-        breakpoint()
         dit_cfg["gradient_checkpointing"] = gc
         self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
         self.gradient_checkpointing = gc

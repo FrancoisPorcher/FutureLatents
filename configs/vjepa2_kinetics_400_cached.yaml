@@ -4,3 +4,4 @@ inherits:
   - training/evaluation.yaml
   - training/flow_matching.yaml
 encoder_trainable: false
+backbone: null
