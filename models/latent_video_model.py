@@ -6,7 +6,9 @@ from typing import Any, Dict, Iterable
 
 import logging
 
+import torch
 import torch.nn as nn
+from diffusers import DDPMScheduler
 from transformers import AutoModel, AutoVideoProcessor
 
 from models.DiT import DiT
@@ -51,6 +53,11 @@ class LatentVideoModel(nn.Module):
         dit_cfg["gradient_checkpointing"] = gc
         self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
         self.gradient_checkpointing = gc
+
+        # Noise scheduler used during training
+        num_train_timesteps = int(fm_cfg.NUM_TRAIN_TIMESTEPS)
+        self.noise_scheduler = DDPMScheduler(num_train_timesteps=num_train_timesteps)
+
         # Configure whether the encoder should be trainable
         trainable = config.ENCODER_TRAINABLE
         self.set_encoder_trainable(trainable)
@@ -107,25 +114,29 @@ class LatentVideoModel(nn.Module):
             return inputs["embedding"]
         raise ValueError("`inputs` must contain either 'video' or 'embedding'")
 
-    def forward(self, latents=None, timesteps=None, inputs=None):
-        """Run the flow transformer on latent tokens.
+    def forward(self, batch: Dict[str, Any]):
+        """Encode ``batch`` and predict the added noise.
 
-        The model can either operate directly on ``latents`` or extract them
-        from ``inputs`` using :meth:`encode_inputs`.  In both cases ``timesteps``
-        must be provided to drive the flow transformer.
+        The model internally encodes the inputs, samples diffusion timesteps
+        and generates noisy latents. It returns both the prediction and the
+        target noise so that the caller can compute the loss.
         """
 
-        if inputs is not None:
-            latents = self.encode_inputs(inputs)
+        latents = self.encode_inputs(batch)
+        noise = torch.randn_like(latents)
+        timesteps = torch.randint(
+            0,
+            self.noise_scheduler.config.num_train_timesteps,
+            (latents.shape[0],),
+            device=latents.device,
+            dtype=torch.long,
+        )
+        noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-        if latents is None or timesteps is None:
-            raise ValueError(
-                "`latents` and `timesteps` must be provided"
-            )
-            
         if self.flow_transformer is None:
             raise RuntimeError("Flow transformer is not initialised")
-        return self.flow_transformer(latents, timesteps)
+        prediction = self.flow_transformer(noisy_latents, timesteps)
+        return prediction, noise
 
     # ------------------------------------------------------------------
     # Introspection helpers

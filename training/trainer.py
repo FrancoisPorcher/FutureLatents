@@ -17,7 +17,6 @@ import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
 from accelerate.utils import tqdm
-from diffusers import DDPMScheduler
 import logging
 
 
@@ -46,7 +45,6 @@ class Trainer:
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
-        noise_scheduler: Optional[DDPMScheduler] = None,
         accelerator: Optional[Accelerator] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
@@ -54,7 +52,6 @@ class Trainer:
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.noise_scheduler = noise_scheduler
         self.state = TrainState()
         self.logger = logger or logging.getLogger(__name__)
 
@@ -65,25 +62,15 @@ class Trainer:
         """Perform a single optimisation step using flow matching."""
 
         self.model.train()
-        if self.accelerator is None or self.noise_scheduler is None:
+        if self.accelerator is None:
             raise NotImplementedError(
-                "Trainer.train_step() requires an accelerator and noise scheduler."
+                "Trainer.train_step() requires an accelerator."
             )
 
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
-                latents = self.model.encode_inputs(batch)
-                noise = torch.randn_like(latents)
-                timesteps = torch.randint(
-                    0,
-                    self.noise_scheduler.config.num_train_timesteps,
-                    (latents.shape[0],),
-                    device=latents.device,
-                    dtype=torch.long,
-                )
-                noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
-                model_output = self.model(noisy_latents, timesteps)
-                loss = F.mse_loss(model_output, noise)
+                prediction, target = self.model(batch)
+                loss = F.mse_loss(prediction, target)
             self.accelerator.backward(loss)
             self.optimizer.step()
             if self.scheduler is not None:
