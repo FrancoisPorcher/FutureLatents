@@ -6,9 +6,8 @@ import math
 import torch
 import torch.nn as nn
 from torch.nn.functional import scaled_dot_product_attention
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.utils.checkpoint import checkpoint
-
-from utils.attention import sdpa_auto_backend
 
 
 def timestep_embedding(timesteps: torch.Tensor, dim: int) -> torch.Tensor:
@@ -66,8 +65,10 @@ class MultiheadSelfAttention(nn.Module):
         q = q.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         k = k.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
-        with sdpa_auto_backend():
+
+        with sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION):
             x = scaled_dot_product_attention(q, k, v)
+
         x = x.transpose(1, 2).contiguous().view(B, N, C)
         return self.proj(x)
 
