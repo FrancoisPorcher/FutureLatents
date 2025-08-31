@@ -6,20 +6,16 @@ This directory contains the model components used by FutureLatents.
   flow matching transformer operating on latent tokens.
 - `DiT.py` implements a minimal diffusion transformer (DiT) that predicts
   the noise added at each training timestep.  It uses PyTorch's
-  ``scaled_dot_product_attention`` with optional flash or efficient
-  attention backends selected via the ``attn_backends`` argument.
-  For example:
+  ``scaled_dot_product_attention`` with a context manager that
+  automatically selects the best available backend.  Flash attention is
+  preferred, followed by the XFormers memory‑efficient kernel and a math
+  fallback:
 
   ```python
   from torch.nn.functional import scaled_dot_product_attention
-  from torch.nn.attention import SDPBackend, sdpa_kernel
+  from utils.attention import sdpa_auto_backend
 
-  # Only enable flash attention backend
-  with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-      scaled_dot_product_attention(...)
-
-  # Enable the Math or Efficient attention backends
-  with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+  with sdpa_auto_backend():
       scaled_dot_product_attention(...)
   ```
 
