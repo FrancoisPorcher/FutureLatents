@@ -12,7 +12,6 @@ from utils.config import load_config, print_config
 import torch
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
-from diffusers import DDPMScheduler
 
 
 def main() -> None:
@@ -40,9 +39,6 @@ def main() -> None:
         dataset, shuffle=True, num_workers=num_workers
     )
 
-    num_train_timesteps = int(config.FLOW_MATCHING.NUM_TRAIN_TIMESTEPS)
-    noise_scheduler = DDPMScheduler(num_train_timesteps=num_train_timesteps)
-
     gradient_accumulation_steps = int(config.TRAINER.GRADIENT_ACCUMULATION_STEPS)
     find_unused_parameters = bool(config.TRAINER.FIND_UNUSED_PARAMETERS)
     mixed_precision = str(config.TRAINER.MIXED_PRECISION)
@@ -68,7 +64,6 @@ def main() -> None:
         model,
         optimizer,
         scheduler,
-        noise_scheduler=noise_scheduler,
         accelerator=accelerator,
         logger=logger,
     )
