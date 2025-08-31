@@ -43,7 +43,23 @@ class MLP(nn.Module):
 
 
 class MultiheadSelfAttention(nn.Module):
-    """Self-attention using ``scaled_dot_product_attention``."""
+    """Self-attention using ``scaled_dot_product_attention``.
+
+    Example enabling specific attention kernels:
+
+    .. code-block:: python
+
+        from torch.nn.functional import scaled_dot_product_attention
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        # Only enable flash attention backend
+        with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+            scaled_dot_product_attention(...)
+
+        # Enable the Math or Efficient attention backends
+        with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+            scaled_dot_product_attention(...)
+    """
 
     def __init__(
         self,
