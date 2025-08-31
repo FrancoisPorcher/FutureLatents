@@ -87,6 +87,8 @@ class MultiheadSelfAttention(nn.Module):
             if self.attn_backends is not None
             else contextlib.nullcontext()
         )
+        
+        breakpoint()
         with ctx:
             x = scaled_dot_product_attention(q, k, v)
         x = x.transpose(1, 2).contiguous().view(B, N, C)
