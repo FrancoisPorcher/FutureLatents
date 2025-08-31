@@ -1,37 +1,49 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterable
+from typing import Iterable, Optional
 
 import torch
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 
-def _available_backends() -> list[SDPBackend]:
-    """Return attention backends in preference order.
+def _select_backend() -> Optional[SDPBackend]:
+    """Select an attention backend in order of preference.
 
-    The function inspects which scaled dot-product attention (SDPA) kernels are
-    *enabled* in the current PyTorch environment and returns them ordered by
-    preference: Flash Attention > Memory Efficient Attention > math fallback.
-
-    Returning a list rather than a single backend allows PyTorch to gracefully
-    fall back to a supported kernel when higher-priority implementations are not
-    available at run time (e.g. when the GPU architecture does not support Flash
-    Attention).  This avoids ``RuntimeError: No available kernel`` failures on
-    older GPUs.
+    The function checks which scaled dot-product attention (SDPA) kernels are
+    available in the current environment and returns the most suitable backend
+    following the priority: Flash Attention > XFormers > math.  If none of these
+    are available ``None`` is returned and the regular PyTorch implementation is
+    used.  The chosen backend is printed for transparency.
     """
 
-    backends: list[SDPBackend] = []
     if torch.backends.cuda.flash_sdp_enabled():
-        backends.append(SDPBackend.FLASH_ATTENTION)
-    if torch.backends.cuda.mem_efficient_sdp_enabled():
-        backends.append(SDPBackend.EFFICIENT_ATTENTION)
-    backends.append(SDPBackend.MATH)
-    return backends
+        print("Using Flash Attention backend")
+        return SDPBackend.FLASH_ATTENTION
+
+    try:  # check for xformers
+        import xformers.ops  # noqa: F401
+    except Exception:
+        pass
+    else:
+        if torch.backends.cuda.mem_efficient_sdp_enabled():
+            print("Using xformers backend")
+            return SDPBackend.EFFICIENT_ATTENTION
+
+    if torch.backends.cuda.math_sdp_enabled():
+        print("Using math attention backend")
+        return SDPBackend.MATH
+
+    print("No specialized attention backend available; using regular PyTorch")
+    return None
 
 
 @contextmanager
 def sdpa_auto_backend() -> Iterable[None]:
-    """Context manager selecting the best attention backend automatically."""
-    with sdpa_kernel(_available_backends()):
+    """Context manager selecting and reporting the best attention backend."""
+    backend = _select_backend()
+    if backend is not None:
+        with sdpa_kernel(backend):
+            yield
+    else:
         yield
