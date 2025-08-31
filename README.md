@@ -45,7 +45,8 @@ Run `utils.config.load_config` to resolve the hierarchy and `utils.config.print_
 
 The training configuration additionally supports a `mixed_precision` field
 (`"no"`, `"fp16"` or `"bf16"`) that is forwarded to the Hugging Face
-`Accelerator` for mixed precision training.
+`Accelerator` for mixed precision training. A `gradient_checkpointing` flag
+enables PyTorch's gradient checkpointing for reduced memory usage.
 
 ### Flow matching
 
