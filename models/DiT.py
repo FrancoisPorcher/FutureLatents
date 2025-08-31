@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import math
+import contextlib
 import torch
 import torch.nn as nn
+from torch.nn.functional import scaled_dot_product_attention
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.utils.checkpoint import checkpoint
 
 
@@ -39,20 +42,77 @@ class MLP(nn.Module):
         return x
 
 
+class MultiheadSelfAttention(nn.Module):
+    """Self-attention using ``scaled_dot_product_attention``.
+
+    Example enabling specific attention kernels:
+
+    .. code-block:: python
+
+        from torch.nn.functional import scaled_dot_product_attention
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        # Only enable flash attention backend
+        with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+            scaled_dot_product_attention(...)
+
+        # Enable the Math or Efficient attention backends
+        with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+            scaled_dot_product_attention(...)
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        attn_backends: SDPBackend | list[SDPBackend] | None = None,
+    ) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
+        self.qkv = nn.Linear(dim, dim * 3)
+        self.proj = nn.Linear(dim, dim)
+        self.attn_backends = attn_backends
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape
+        qkv = self.qkv(x)
+        q, k, v = qkv.chunk(3, dim=-1)
+        q = q.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+        ctx = (
+            sdpa_kernel(self.attn_backends)
+            if self.attn_backends is not None
+            else contextlib.nullcontext()
+        )
+        with ctx:
+            x = scaled_dot_product_attention(q, k, v)
+        x = x.transpose(1, 2).contiguous().view(B, N, C)
+        return self.proj(x)
+
+
 class DiTBlock(nn.Module):
     """Transformer block consisting of self-attention and an MLP."""
 
-    def __init__(self, dim: int, num_heads: int, mlp_ratio: float = 4.0) -> None:
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        attn_backends: SDPBackend | list[SDPBackend] | None = None,
+    ) -> None:
         super().__init__()
         self.norm1 = nn.LayerNorm(dim)
-        self.attn = nn.MultiheadAttention(dim, num_heads, batch_first=True)
+        self.attn = MultiheadSelfAttention(dim, num_heads, attn_backends)
         self.norm2 = nn.LayerNorm(dim)
         self.mlp = MLP(dim, int(dim * mlp_ratio))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x
         x = self.norm1(x)
-        x, _ = self.attn(x, x, x)
+        x = self.attn(x)
         x = residual + x
         residual = x
         x = self.norm2(x)
@@ -72,6 +132,7 @@ class DiT(nn.Module):
         mlp_ratio: float = 4.0,
         max_time_embeddings: int = 1000,
         gradient_checkpointing: bool = False,
+        attn_backends: SDPBackend | list[SDPBackend] | None = None,
     ) -> None:
         super().__init__()
         self.input_dim = input_dim
@@ -86,7 +147,10 @@ class DiT(nn.Module):
             nn.Linear(hidden_dim * 4, hidden_dim),
         )
         self.blocks = nn.ModuleList(
-            [DiTBlock(hidden_dim, num_heads, mlp_ratio) for _ in range(depth)]
+            [
+                DiTBlock(hidden_dim, num_heads, mlp_ratio, attn_backends)
+                for _ in range(depth)
+            ]
         )
         self.norm = nn.LayerNorm(hidden_dim)
         self.out_proj = nn.Linear(hidden_dim, input_dim)
