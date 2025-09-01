@@ -38,6 +38,10 @@ class Trainer:
         Optimiser responsible for updating the model parameters.
     scheduler:
         Optional learning rate scheduler stepped after each optimisation step.
+    max_grad_norm:
+        If specified, clip gradients to this maximum L2 norm.
+    max_grad_value:
+        If specified, clip gradients to this maximum absolute value.
     """
 
     def __init__(
@@ -46,12 +50,16 @@ class Trainer:
         optimizer: torch.optim.Optimizer,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
+        max_grad_norm: Optional[float] = None,
+        max_grad_value: Optional[float] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.accelerator = accelerator
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.max_grad_norm = max_grad_norm
+        self.max_grad_value = max_grad_value
         self.state = TrainState()
         self.logger = logger or logging.getLogger(__name__)
 
@@ -72,6 +80,14 @@ class Trainer:
                 prediction, target = self.model(batch)
                 loss = F.mse_loss(prediction, target)
             self.accelerator.backward(loss)
+            if self.max_grad_norm is not None:
+                self.accelerator.clip_grad_norm_(
+                    self.model.parameters(), self.max_grad_norm
+                )
+            if self.max_grad_value is not None:
+                self.accelerator.clip_grad_value_(
+                    self.model.parameters(), self.max_grad_value
+                )
             self.optimizer.step()
             if self.scheduler is not None:
                 self.scheduler.step()
