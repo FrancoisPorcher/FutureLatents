@@ -63,6 +63,22 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
+    # Report model and mixed precision information
+    logger.info(
+        f"Model parameter dtype: {next(model.parameters()).dtype}"
+    )
+    logger.info(
+        f"Accelerator mixed precision: {accelerator.mixed_precision}"
+    )
+    if accelerator.mixed_precision != "no":
+        with accelerator.autocast():
+            autocast_dtype = (
+                torch.get_autocast_gpu_dtype()
+                if accelerator.device.type == "cuda"
+                else torch.get_autocast_cpu_dtype()
+            )
+        logger.info(f"Autocast dtype: {autocast_dtype}")
+
     max_grad_norm = config.TRAINER.MAX_GRAD_NORM
     max_grad_value = config.TRAINER.MAX_GRAD_VALUE
     if max_grad_norm is None and max_grad_value is None:
