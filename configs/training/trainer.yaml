@@ -6,3 +6,5 @@ trainer:
   find_unused_parameters: false
   mixed_precision: fp16
   gradient_checkpointing: true
+  max_grad_norm: 1.0
+  max_grad_value: null
