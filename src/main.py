@@ -60,8 +60,16 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    max_grad_norm = getattr(config.TRAINER, "MAX_GRAD_NORM", None)
-    max_grad_value = getattr(config.TRAINER, "MAX_GRAD_VALUE", None)
+    max_grad_norm = config.TRAINER.MAX_GRAD_NORM
+    max_grad_value = config.TRAINER.MAX_GRAD_VALUE
+    if max_grad_norm is None and max_grad_value is None:
+        raise ValueError(
+            "Either MAX_GRAD_NORM or MAX_GRAD_VALUE must be specified in the config"
+        )
+    if max_grad_norm is not None and max_grad_value is not None:
+        raise ValueError(
+            "Only one of MAX_GRAD_NORM or MAX_GRAD_VALUE may be specified"
+        )
 
     trainer = Trainer(
         model,
