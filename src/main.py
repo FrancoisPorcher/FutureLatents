@@ -20,12 +20,10 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(Path(args.config_path))
-    print_config(config)
+    
     dataset = build_dataset(config)
 
     model = LatentVideoModel(config)
-
-    model.count_parameters()
 
     learning_rate = float(config.TRAINER.LEARNING_RATE)
     weight_decay = float(config.TRAINER.WEIGHT_DECAY)
@@ -53,6 +51,11 @@ def main() -> None:
         ],
     )
     
+    if accelerator.is_main_process:
+        model.count_parameters()
+        print_config(config)
+        
+    
     model, optimizer, dataloader, scheduler = accelerator.prepare(
         model, optimizer, dataloader, scheduler
     )
@@ -70,6 +73,7 @@ def main() -> None:
         raise ValueError(
             "Only one of MAX_GRAD_NORM or MAX_GRAD_VALUE may be specified"
         )
+        
 
     trainer = Trainer(
         model,
