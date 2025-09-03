@@ -1,5 +1,6 @@
 from pathlib import Path
 import logging
+from copy import deepcopy
 
 # Import the project package relative to this module so that running
 # ``python -m src.main`` works without requiring ``src`` on the
@@ -20,8 +21,17 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(Path(args.config_path))
-    
-    dataset = build_dataset(config)
+
+    dataset_name = next(iter(config.DATASETS))
+    dataset_cfg = getattr(config.DATASETS, dataset_name)
+
+    train_cfg = deepcopy(config)
+    getattr(train_cfg.DATASETS, dataset_name).PATHS.CSV = dataset_cfg.PATHS.TRAIN_CSV
+    train_dataset = build_dataset(train_cfg)
+
+    val_cfg = deepcopy(config)
+    getattr(val_cfg.DATASETS, dataset_name).PATHS.CSV = dataset_cfg.PATHS.VAL_CSV
+    val_dataset = build_dataset(val_cfg)
 
     model = LatentVideoModel(config)
 
@@ -33,8 +43,11 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
 
     num_workers = int(config.TRAINER.NUM_WORKERS)
-    dataloader = torch.utils.data.DataLoader(
-        dataset, shuffle=True, num_workers=num_workers
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset, shuffle=True, num_workers=num_workers
+    )
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset, shuffle=False, num_workers=num_workers
     )
 
     gradient_accumulation_steps = int(config.TRAINER.GRADIENT_ACCUMULATION_STEPS)
@@ -59,8 +72,8 @@ def main() -> None:
         print_config(config)
         
     
-    model, optimizer, dataloader, scheduler = accelerator.prepare(
-        model, optimizer, dataloader, scheduler)
+    model, optimizer, train_dataloader, val_dataloader, scheduler = accelerator.prepare(
+        model, optimizer, train_dataloader, val_dataloader, scheduler)
 
 
 
@@ -87,7 +100,7 @@ def main() -> None:
     )
 
     eval_every = int(config.EVALUATION.EVAL_EVERY)
-    trainer.fit(dataloader, epochs=1, eval_every=eval_every)
+    trainer.fit(train_dataloader, val_dataloader, epochs=1, eval_every=eval_every)
 
 
 if __name__ == "__main__":
