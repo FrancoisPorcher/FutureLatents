@@ -28,15 +28,14 @@ notebooks/ Exploratory notebooks (empty placeholder)
 ## Configuration
 
 Configurations can be composed using the `inherits` key. For example
-`configs/vjepa2_kinetics_400.yaml` combines dataset, backbone, training and
-flow‑matching settings:
+`configs/vjepa2_kinetics_400.yaml` combines dataset, backbone, and training
+settings (including the model configuration):
 
 ```yaml
 inherits:
   - datasets/kinetics_400.yaml
   - backbones/vjepa2.yaml
   - training/trainer.yaml
-  - training/flow_matching.yaml
 encoder_trainable: false
 ```
 
@@ -52,11 +51,11 @@ accelerator to stabilise training.
 ### Flow matching
 
 Flow matching follows the diffusive modelling paradigm where latent tokens are
-incrementally noised and denoised.  The `training/flow_matching.yaml` file
-provides the number of training timesteps and the configuration for the
-diffusion transformer (DiT) used to predict the noise at each step.  The
-`LatentVideoModel` reads these values from the `flow_matching` section to build
-its internal DiT module.
+incrementally noised and denoised.  The `model.flow_matching` section in
+`training/trainer.yaml` provides the number of training timesteps and the
+configuration for the diffusion transformer (DiT) used to predict the noise at
+each step.  The `LatentVideoModel` reads these values to build its internal DiT
+module.
 
 ## Usage
 

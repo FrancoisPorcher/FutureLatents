@@ -19,21 +19,22 @@ This directory contains the model components used by FutureLatents.
       scaled_dot_product_attention(...)
   ```
 
-The architecture is configured through the `flow_matching` section in the
-configuration files.  For instance, `configs/training/flow_matching.yaml`
-provides both the number of diffusion steps and the DiT hyperparameters:
+ The architecture is configured through the `model.flow_matching` section in the
+ configuration files.  For instance, `configs/training/trainer.yaml` provides
+ both the number of diffusion steps and the DiT hyperparameters:
 
 ```yaml
-flow_matching:
-  num_train_timesteps: 500
-  dit:
-    input_dim: 1024
-    hidden_dim: 1024
-    depth: 6
-    num_heads: 8
-    mlp_ratio: 4.0
+model:
+  flow_matching:
+    num_train_timesteps: 500
+    dit:
+      input_dim: 1024
+      hidden_dim: 1024
+      depth: 6
+      num_heads: 8
+      mlp_ratio: 4.0
 ```
 
 `LatentVideoModel` reads these values to construct the flow transformer.  If no
-`flow_matching` configuration is supplied the transformer is omitted, allowing
+`model.flow_matching` configuration is supplied the transformer is omitted, allowing
 experiments that focus solely on the backbone encoder.

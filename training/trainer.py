@@ -129,7 +129,16 @@ class Trainer:
 
         self.model.eval()
         total_loss = 0.0
-        for batch in dataloader:
+        disable = (
+            self.accelerator is not None
+            and not self.accelerator.is_local_main_process
+        )
+        progress_bar = tqdm(
+            dataloader,
+            disable=disable,
+            desc=f"Eval {self.state.epoch + 1}",
+        )
+        for batch in progress_bar:
             ctx = (
                 self.accelerator.autocast()
                 if self.accelerator is not None
@@ -138,6 +147,9 @@ class Trainer:
             with ctx:
                 latents = self.model.encode_inputs(batch)
             total_loss += latents.mean().item()
+            progress_bar.set_postfix(
+                loss=total_loss / max(progress_bar.n, 1), refresh=False
+            )
         return total_loss / max(len(dataloader), 1)
 
     # ------------------------------------------------------------------

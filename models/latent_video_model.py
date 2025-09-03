@@ -44,7 +44,7 @@ class LatentVideoModel(nn.Module):
             self.preprocessor = None
             logger.info("No backbone encoder, operating directly on latents")
         # Flow matching transformer component
-        fm_cfg = config.FLOW_MATCHING
+        fm_cfg = config.MODEL.FLOW_MATCHING
         dit_cfg = getattr(fm_cfg, "DIT", None) or {}
         # Config files may specify DIT parameters using upper-case keys.
         # Normalize keys to match the DiT constructor signature.
