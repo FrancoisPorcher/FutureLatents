@@ -49,7 +49,7 @@ class LatentVideoModel(nn.Module):
         # Config files may specify DIT parameters using upper-case keys.
         # Normalize keys to match the DiT constructor signature.
         dit_cfg = {k.lower(): v for k, v in dit_cfg.items()}
-        gc = config.TRAINER.GRADIENT_CHECKPOINTING
+        gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
         dit_cfg["gradient_checkpointing"] = gc
         self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
         self.gradient_checkpointing = gc

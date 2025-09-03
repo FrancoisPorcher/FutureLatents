@@ -43,7 +43,7 @@ class Trainer:
     max_grad_value:
         If specified, clip gradients to this maximum absolute value.
     config:
-        Configuration object holding evaluation parameters.
+        Configuration object holding training and evaluation parameters.
     """
 
     def __init__(
@@ -67,6 +67,7 @@ class Trainer:
         self.logger = logger or logging.getLogger(__name__)
         self.eval_every = int(config.EVALUATION.EVAL_EVERY)
         self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
+        self.epochs = int(config.TRAINING.EPOCHS)
 
     # ------------------------------------------------------------------
     # Training utilities
@@ -159,7 +160,7 @@ class Trainer:
         self,
         train_loader: Iterable[dict],
         val_loader: Optional[Iterable[dict]] = None,
-        epochs: int = 1,
+        epochs: Optional[int] = None,
         checkpoint_dir: Optional[str] = None,
         save_every: int = 1,
     ) -> None:
@@ -172,7 +173,8 @@ class Trainer:
         val_loader:
             Optional dataloader used for evaluation.
         epochs:
-            Total number of epochs to train for.
+            Total number of epochs to train for. If ``None``, the value from
+            the configuration is used.
         checkpoint_dir:
             Directory to store checkpoints in.  If ``None`` no checkpoints are
             written.
@@ -189,6 +191,9 @@ class Trainer:
         ckpt_path: Optional[Path] = Path(checkpoint_dir) if checkpoint_dir else None
         if ckpt_path is not None:
             ckpt_path.mkdir(parents=True, exist_ok=True)
+
+        if epochs is None:
+            epochs = self.epochs
 
         if self.eval_first and val_loader is not None:
             val_loss = self.val(val_loader)

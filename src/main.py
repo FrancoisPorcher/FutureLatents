@@ -35,14 +35,14 @@ def main() -> None:
 
     model = LatentVideoModel(config)
 
-    learning_rate = float(config.TRAINER.LEARNING_RATE)
-    weight_decay = float(config.TRAINER.WEIGHT_DECAY)
+    learning_rate = float(config.TRAINER.TRAINING.LEARNING_RATE)
+    weight_decay = float(config.TRAINER.TRAINING.WEIGHT_DECAY)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
 
-    num_workers = int(config.TRAINER.NUM_WORKERS)
+    num_workers = int(config.TRAINER.TRAINING.NUM_WORKERS)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, shuffle=True, num_workers=num_workers
     )
@@ -50,9 +50,13 @@ def main() -> None:
         val_dataset, shuffle=False, num_workers=num_workers
     )
 
-    gradient_accumulation_steps = int(config.TRAINER.GRADIENT_ACCUMULATION_STEPS)
-    find_unused_parameters = bool(config.TRAINER.FIND_UNUSED_PARAMETERS)
-    mixed_precision = str(config.TRAINER.MIXED_PRECISION)
+    gradient_accumulation_steps = int(
+        config.TRAINER.TRAINING.GRADIENT_ACCUMULATION_STEPS
+    )
+    find_unused_parameters = bool(
+        config.TRAINER.TRAINING.FIND_UNUSED_PARAMETERS
+    )
+    mixed_precision = str(config.TRAINER.TRAINING.MIXED_PRECISION)
 
     accelerator = Accelerator(
         gradient_accumulation_steps=gradient_accumulation_steps,
@@ -77,8 +81,8 @@ def main() -> None:
 
 
 
-    max_grad_norm = config.TRAINER.MAX_GRAD_NORM
-    max_grad_value = config.TRAINER.MAX_GRAD_VALUE
+    max_grad_norm = config.TRAINER.TRAINING.MAX_GRAD_NORM
+    max_grad_value = config.TRAINER.TRAINING.MAX_GRAD_VALUE
     if max_grad_norm is None and max_grad_value is None:
         raise ValueError(
             "Either MAX_GRAD_NORM or MAX_GRAD_VALUE must be specified in the config"
@@ -92,7 +96,7 @@ def main() -> None:
     trainer = Trainer(
         model=model,
         optimizer=optimizer,
-        config=config,
+        config=config.TRAINER,
         scheduler=scheduler,
         accelerator=accelerator,
         max_grad_norm=float(max_grad_norm) if max_grad_norm is not None else None,
@@ -100,8 +104,7 @@ def main() -> None:
         logger=logger,
     )
 
-    epochs = int(config.TRAINER.EPOCHS)
-    trainer.fit(train_dataloader, val_dataloader, epochs=epochs)
+    trainer.fit(train_dataloader, val_dataloader)
 
 
 if __name__ == "__main__":

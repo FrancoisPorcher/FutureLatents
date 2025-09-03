@@ -28,15 +28,14 @@ notebooks/ Exploratory notebooks (empty placeholder)
 ## Configuration
 
 Configurations can be composed using the `inherits` key. For example
-`configs/vjepa2_kinetics_400.yaml` combines dataset, backbone, training, evaluation
-and flow‑matching settings:
+`configs/vjepa2_kinetics_400.yaml` combines dataset, backbone, training and
+flow‑matching settings:
 
 ```yaml
 inherits:
   - datasets/kinetics_400.yaml
   - backbones/vjepa2.yaml
   - training/trainer.yaml
-  - training/evaluation.yaml
   - training/flow_matching.yaml
 encoder_trainable: false
 ```
