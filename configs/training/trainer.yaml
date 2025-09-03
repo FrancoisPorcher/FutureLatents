@@ -12,7 +12,7 @@ trainer:
     epochs: 1
   evaluation:
     eval_every: 1
-    eval_first: false
+    eval_first: true
 model:
   flow_matching:
     num_train_timesteps: 1000
