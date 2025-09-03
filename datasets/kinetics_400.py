@@ -49,9 +49,15 @@ class Kinetics400(Dataset):
     def __init__(self, config) -> None:
         self.config = config
         self.csv_path = str(config.DATASETS.KINETICS_400.PATHS.CSV)
+        self.labels_path = str(config.DATASETS.KINETICS_400.PATHS.LABELS_TXT)
         self.n_frame = int(config.DATASETS.KINETICS_400.N_FRAME)
         self.stride = int(config.DATASETS.KINETICS_400.STRIDE)
         self.dataframe = pd.read_csv(self.csv_path, header=None, names=["video_path", "index"], sep=" ")
+        with open(self.labels_path, "r") as f:
+            lines = [line.strip().split(" ", 1) for line in f]
+        df_labels = pd.DataFrame(lines, columns=["index", "label"])
+        df_labels["index"] = df_labels["index"].astype("int64")
+        self.dataframe = pd.merge(self.dataframe, df_labels, on="index")
 
     def __len__(self) -> int:  # pragma: no cover - simple wrapper
         """Return the number of samples in the dataset."""
@@ -61,6 +67,7 @@ class Kinetics400(Dataset):
     def __getitem__(self, k):
         video_path = self.dataframe.loc[k, "video_path"]
         index = int(self.dataframe.loc[k, "index"])
+        label = self.dataframe.loc[k, "label"]
 
         padded = False
 
@@ -74,6 +81,7 @@ class Kinetics400(Dataset):
         return {
             "video": video_tensor,          # [n_frame,C,H,W] uint8 tensor
             "index": index,
+            "label": label,
             "video_path": video_path,
             "n_frames_original_video": n_frames_original_video,
             "n_frames": n_frames,

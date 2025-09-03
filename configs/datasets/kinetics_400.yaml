@@ -5,3 +5,4 @@ datasets:
     paths:
       train_csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_train_paths.csv
       val_csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_val_paths.csv
+      labels_txt: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_labels.txt
