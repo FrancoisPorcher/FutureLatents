@@ -42,12 +42,15 @@ class Trainer:
         If specified, clip gradients to this maximum L2 norm.
     max_grad_value:
         If specified, clip gradients to this maximum absolute value.
+    config:
+        Configuration object holding evaluation parameters.
     """
 
     def __init__(
         self,
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
+        config: object,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
         max_grad_norm: Optional[float] = None,
@@ -62,6 +65,8 @@ class Trainer:
         self.max_grad_value = max_grad_value
         self.state = TrainState()
         self.logger = logger or logging.getLogger(__name__)
+        self.eval_every = int(config.EVALUATION.EVAL_EVERY)
+        self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
 
     # ------------------------------------------------------------------
     # Training utilities
@@ -155,7 +160,6 @@ class Trainer:
         train_loader: Iterable[dict],
         val_loader: Optional[Iterable[dict]] = None,
         epochs: int = 1,
-        eval_every: int = 1,
         checkpoint_dir: Optional[str] = None,
         save_every: int = 1,
     ) -> None:
@@ -169,24 +173,33 @@ class Trainer:
             Optional dataloader used for evaluation.
         epochs:
             Total number of epochs to train for.
-        eval_every:
-            Perform evaluation every ``eval_every`` epochs.
         checkpoint_dir:
             Directory to store checkpoints in.  If ``None`` no checkpoints are
             written.
         save_every:
             Save a checkpoint every ``save_every`` epochs.
+        
+        Notes
+        -----
+        Evaluation frequency is controlled by ``self.eval_every`` set during
+        initialisation.  If ``self.eval_first`` is ``True`` evaluation is run
+        once before any training.
         """
 
         ckpt_path: Optional[Path] = Path(checkpoint_dir) if checkpoint_dir else None
         if ckpt_path is not None:
             ckpt_path.mkdir(parents=True, exist_ok=True)
 
+        if self.eval_first and val_loader is not None:
+            val_loss = self.val(val_loader)
+            msg = f"epoch 0/{epochs} - val_loss: {val_loss:.4f}"
+            self.logger.info(msg)
+
         for epoch in range(epochs):
             self.state.epoch = epoch
             train_loss = self.train_epoch(train_loader)
             msg = f"epoch {epoch + 1}/{epochs} - train_loss: {train_loss:.4f}"
-            if val_loader is not None and (epoch + 1) % eval_every == 0:
+            if val_loader is not None and (epoch + 1) % self.eval_every == 0:
                 val_loss = self.val(val_loader)
                 msg += f", val_loss: {val_loss:.4f}"
             self.logger.info(msg)

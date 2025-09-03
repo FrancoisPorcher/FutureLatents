@@ -96,11 +96,12 @@ def main() -> None:
         accelerator=accelerator,
         max_grad_norm=float(max_grad_norm) if max_grad_norm is not None else None,
         max_grad_value=float(max_grad_value) if max_grad_value is not None else None,
+        config=config,
         logger=logger,
     )
 
-    eval_every = int(config.EVALUATION.EVAL_EVERY)
-    trainer.fit(train_dataloader, val_dataloader, epochs=1, eval_every=eval_every)
+    epochs = int(config.TRAINER.EPOCHS)
+    trainer.fit(train_dataloader, val_dataloader, epochs=epochs)
 
 
 if __name__ == "__main__":
