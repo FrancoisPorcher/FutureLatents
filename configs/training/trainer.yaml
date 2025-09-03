@@ -8,3 +8,4 @@ trainer:
   gradient_checkpointing: true
   max_grad_norm: 1.0
   max_grad_value: null
+  epochs: 1
