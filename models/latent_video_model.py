@@ -132,8 +132,6 @@ class LatentVideoModel(nn.Module):
             dtype=torch.long,
         )
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
-        
-        breakpoint()
 
         if self.flow_transformer is None:
             raise RuntimeError("Flow transformer is not initialised")

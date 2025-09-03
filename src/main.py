@@ -90,13 +90,13 @@ def main() -> None:
         
 
     trainer = Trainer(
-        model,
-        optimizer,
-        scheduler,
+        model=model,
+        optimizer=optimizer,
+        config=config,
+        scheduler=scheduler,
         accelerator=accelerator,
         max_grad_norm=float(max_grad_norm) if max_grad_norm is not None else None,
         max_grad_value=float(max_grad_value) if max_grad_value is not None else None,
-        config=config,
         logger=logger,
     )
 
