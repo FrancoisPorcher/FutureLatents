@@ -13,3 +13,12 @@ trainer:
   evaluation:
     eval_every: 1
     eval_first: false
+model:
+  flow_matching:
+    num_train_timesteps: 1000
+    dit:
+      input_dim: 1024
+      hidden_dim: 1024
+      depth: 12
+      num_heads: 8
+      mlp_ratio: 4.0
