@@ -123,7 +123,6 @@ class LatentVideoModel(nn.Module):
         """
 
         latents = self.encode_inputs(batch)
-        breakpoint()
         noise = torch.randn_like(latents)
         timesteps = torch.randint(
             0,
@@ -132,7 +131,6 @@ class LatentVideoModel(nn.Module):
             device=latents.device,
             dtype=torch.long,
         )
-        breakpoint()
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
         
         breakpoint()
