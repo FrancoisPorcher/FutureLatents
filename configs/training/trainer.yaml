@@ -5,7 +5,7 @@ trainer:
     weight_decay: 0.01
     num_workers: 8
     gradient_accumulation_steps: 1
-    find_unused_parameters: false
+    find_unused_parameters: true
     mixed_precision: fp16
     gradient_checkpointing: true
     max_grad_norm: 1.0
@@ -13,7 +13,7 @@ trainer:
     epochs: 1
   evaluation:
     eval_every: 1
-    eval_first: true
+    eval_first: false
 model:
   num_context_latents: 16
   flow_matching:
