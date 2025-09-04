@@ -130,9 +130,18 @@ class DiT(nn.Module):
         self.norm = nn.LayerNorm(hidden_dim)
         self.out_proj = nn.Linear(hidden_dim, input_dim)
 
-    def forward(self, x: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
-        """Apply the transformer to ``x`` conditioned on ``timesteps``."""
+    def forward(
+        self,
+        context_latents: torch.Tensor,
+        target_latents: torch.Tensor,
+        timesteps: torch.Tensor,
+    ) -> torch.Tensor:
+        """Apply the transformer to ``target_latents`` conditioned on ``timesteps``.
 
+        ``context_latents`` is currently unused but accepted for API compatibility.
+        """
+
+        x = target_latents
         t_emb = timestep_embedding(timesteps, self.hidden_dim)
         t_emb = self.time_mlp(t_emb)
         x = self.in_proj(x)
