@@ -128,6 +128,11 @@ class Trainer:
 
         self.model.eval()
         total_loss = 0.0
+        if self.accelerator is None:
+            raise NotImplementedError(
+                "Trainer.train_step() requires an accelerator."
+            )
+        
         disable = (
             self.accelerator is not None
             and not self.accelerator.is_local_main_process
@@ -138,11 +143,9 @@ class Trainer:
             desc=f"Eval {self.state.epoch + 1}",
         )
         for batch in progress_bar:
-            if self.accelerator is not None:
-                with self.accelerator.autocast():
-                    prediction, target = self.model(batch)
-            else:
+            with self.accelerator.autocast():
                 prediction, target = self.model(batch)
+            # loss computed in fp32
             loss = F.mse_loss(prediction.float(), target.float())
             total_loss += loss.item()
             progress_bar.set_postfix(
