@@ -59,7 +59,7 @@ class MLP(nn.Module):
     def __init__(self, dim: int, hidden_dim: int) -> None:
         super().__init__()
         self.fc1 = nn.Linear(dim, hidden_dim)
-        self.act = nn.GELU()
+        self.act = nn.GELU(approximate="tanh")
         self.fc2 = nn.Linear(hidden_dim, dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -115,25 +115,23 @@ class DiTBlock(nn.Module):
         mlp_ratio: float = 4.0,
     ) -> None:
         super().__init__()
-        self.norm1 = nn.LayerNorm(dim)
+        self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.attn = MultiheadSelfAttention(dim, num_heads)
-        self.norm2 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.mlp = MLP(dim, int(dim * mlp_ratio))
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(dim, 6 * dim, bias=True),
+        )
 
     @staticmethod
     def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
         return x * (1 + scale[:, None, :]) + shift[:, None, :]
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        shift_msa: torch.Tensor,
-        scale_msa: torch.Tensor,
-        gate_msa: torch.Tensor,
-        shift_mlp: torch.Tensor,
-        scale_mlp: torch.Tensor,
-        gate_mlp: torch.Tensor,
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+            self.adaLN_modulation(c).chunk(6, dim=1)
+        )
         residual = x
         x = self.norm1(x)
         x = self.modulate(x, shift_msa, scale_msa)
@@ -145,6 +143,24 @@ class DiTBlock(nn.Module):
         x = self.mlp(x)
         x = residual + gate_mlp[:, None, :] * x
         return x
+
+
+class FinalLayer(nn.Module):
+    """Final DiT layer with adaptive layer norm."""
+
+    def __init__(self, hidden_dim: int, out_dim: int) -> None:
+        super().__init__()
+        self.norm = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
+        self.linear = nn.Linear(hidden_dim, out_dim)
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(hidden_dim, 2 * hidden_dim, bias=True),
+        )
+
+    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
+        x = DiTBlock.modulate(self.norm(x), shift, scale)
+        return self.linear(x)
 
 
 class DiT(nn.Module):
@@ -167,21 +183,20 @@ class DiT(nn.Module):
         self.gradient_checkpointing = gradient_checkpointing
 
         self.context_mlp = nn.Sequential(
-            nn.LayerNorm(input_dim),
-            nn.Linear(input_dim, hidden_dim * 6),
+            nn.LayerNorm(input_dim, elementwise_affine=False, eps=1e-6),
+            nn.Linear(input_dim, hidden_dim),
         )
-        self.in_norm = nn.LayerNorm(hidden_dim)
+        self.in_norm = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
         self.in_proj = nn.Linear(input_dim, hidden_dim)
         self.time_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 4),
             nn.SiLU(),
-            nn.Linear(hidden_dim * 4, hidden_dim * 6),
+            nn.Linear(hidden_dim * 4, hidden_dim),
         )
         self.blocks = nn.ModuleList(
             [DiTBlock(hidden_dim, num_heads, mlp_ratio) for _ in range(depth)]
         )
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.out_proj = nn.Linear(hidden_dim, input_dim)
+        self.final_layer = FinalLayer(hidden_dim, input_dim)
 
     def forward(
         self,
@@ -199,47 +214,20 @@ class DiT(nn.Module):
             target_latents: Latents to be transformed of shape (B, N_target, D)
             timesteps: Timesteps for each element in the batch of shape (B,)
         """
-        context = context_latents[:, 0]
-        context_params = self.context_mlp(context)
+        context_params = self.context_mlp(context_latents).mean(dim=1)
         t_emb = timestep_embedding(timesteps, self.hidden_dim)
         t_emb = self.time_mlp(t_emb)
-        adaln = context_params + t_emb
-        (
-            shift_msa,
-            scale_msa,
-            gate_msa,
-            shift_mlp,
-            scale_mlp,
-            gate_mlp,
-        ) = adaln.chunk(6, dim=-1)
+        c = context_params + t_emb
 
         x = self.in_proj(target_latents)
         x = self.in_norm(x)
 
         for block in self.blocks:
             if self.gradient_checkpointing:
-                x = checkpoint(
-                    block,
-                    x,
-                    shift_msa,
-                    scale_msa,
-                    gate_msa,
-                    shift_mlp,
-                    scale_mlp,
-                    gate_mlp,
-                )
+                x = checkpoint(block, x, c)
             else:
-                x = block(
-                    x,
-                    shift_msa,
-                    scale_msa,
-                    gate_msa,
-                    shift_mlp,
-                    scale_mlp,
-                    gate_mlp,
-                )
-        x = self.norm(x)
-        x = self.out_proj(x)
+                x = block(x, c)
+        x = self.final_layer(x, c)
         return x
 
 
