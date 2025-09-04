@@ -13,6 +13,7 @@ from utils.config import load_config, print_config
 import torch
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
+import wandb
 
 
 def main() -> None:
@@ -74,12 +75,13 @@ def main() -> None:
     if accelerator.is_main_process:
         model.count_parameters()
         print_config(config)
-        
-    
+        wandb.init(project="FutureLatent")
+
     model, optimizer, train_dataloader, val_dataloader, scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, val_dataloader, scheduler)
 
-
+    if accelerator.is_main_process:
+        wandb.watch(model, log="gradients", log_freq=100)
 
     max_grad_norm = config.TRAINER.TRAINING.MAX_GRAD_NORM
     max_grad_value = config.TRAINER.TRAINING.MAX_GRAD_VALUE
@@ -105,6 +107,9 @@ def main() -> None:
     )
 
     trainer.fit(train_dataloader, val_dataloader)
+
+    if accelerator.is_main_process:
+        wandb.finish()
 
 
 if __name__ == "__main__":
