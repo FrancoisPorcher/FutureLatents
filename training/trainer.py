@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from accelerate import Accelerator
 from accelerate.utils import tqdm
 import logging
+import wandb
 
 
 @dataclass
@@ -24,6 +25,7 @@ class TrainState:
     """Simple container for tracking the state of the training process."""
 
     epoch: int = 0
+    step: int = 0
 
 
 class Trainer:
@@ -97,6 +99,11 @@ class Trainer:
             if self.scheduler is not None:
                 self.scheduler.step()
             self.optimizer.zero_grad()
+
+        if wandb.run is not None and self.accelerator.is_main_process:
+            lr = self.optimizer.param_groups[0]["lr"]
+            wandb.log({"train/loss": loss.item(), "train/lr": lr}, step=self.state.step)
+        self.state.step += 1
         return loss.item()
 
     def train_epoch(self, dataloader: Iterable[dict]) -> float:
@@ -148,6 +155,9 @@ class Trainer:
             # loss computed in fp32
             loss = F.mse_loss(prediction.float(), target.float())
             total_loss += loss.item()
+            if wandb.run is not None and self.accelerator.is_main_process:
+                wandb.log({"eval/loss": loss.item()}, step=self.state.step)
+            self.state.step += 1
             progress_bar.set_postfix(
                 loss=total_loss / max(progress_bar.n, 1), refresh=False
             )
@@ -163,6 +173,7 @@ class Trainer:
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "epoch": self.state.epoch,
+            "step": self.state.step,
         }
         torch.save(ckpt, path)
 
@@ -217,10 +228,19 @@ class Trainer:
             self.state.epoch = epoch
             train_loss = self.train_epoch(train_loader)
             msg = f"epoch {epoch + 1}/{epochs} - train_loss: {train_loss:.4f}"
+            epoch_log = {
+                "epoch": epoch + 1,
+                "epoch/train_loss": train_loss,
+            }
             if val_loader is not None and (epoch + 1) % self.eval_every == 0:
                 val_loss = self.val(val_loader)
                 msg += f", val_loss: {val_loss:.4f}"
+                epoch_log["epoch/eval_loss"] = val_loss
             self.logger.info(msg)
+            if wandb.run is not None and (
+                self.accelerator is None or self.accelerator.is_main_process
+            ):
+                wandb.log(epoch_log, step=self.state.step)
 
             if ckpt_path is not None and (epoch + 1) % save_every == 0:
                 filename = ckpt_path / f"checkpoint_epoch_{epoch + 1}.pt"
