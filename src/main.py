@@ -72,7 +72,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    use_wandb = bool(getattr(config, "WANDB", False))
+    use_wandb = config.WANDB
+    print("use_wandb", use_wandb)
 
     if accelerator.is_main_process:
         model.count_parameters()
@@ -86,26 +87,12 @@ def main() -> None:
     if accelerator.is_main_process and use_wandb:
         wandb.watch(model, log="gradients", log_freq=100)
 
-    max_grad_norm = config.TRAINER.TRAINING.MAX_GRAD_NORM
-    max_grad_value = config.TRAINER.TRAINING.MAX_GRAD_VALUE
-    if max_grad_norm is None and max_grad_value is None:
-        raise ValueError(
-            "Either MAX_GRAD_NORM or MAX_GRAD_VALUE must be specified in the config"
-        )
-    if max_grad_norm is not None and max_grad_value is not None:
-        raise ValueError(
-            "Only one of MAX_GRAD_NORM or MAX_GRAD_VALUE may be specified"
-        )
-        
-
     trainer = Trainer(
         model=model,
         optimizer=optimizer,
         config=config.TRAINER,
         scheduler=scheduler,
         accelerator=accelerator,
-        max_grad_norm=float(max_grad_norm) if max_grad_norm is not None else None,
-        max_grad_value=float(max_grad_value) if max_grad_value is not None else None,
         logger=logger,
     )
 

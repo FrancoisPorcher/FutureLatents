@@ -1,4 +1,4 @@
-wandb: true
+wandb: false
 trainer:
   training:
     learning_rate: 1e-5

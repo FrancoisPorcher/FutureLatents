@@ -54,21 +54,36 @@ class Trainer:
         config: object,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
-        max_grad_norm: Optional[float] = None,
-        max_grad_value: Optional[float] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.accelerator = accelerator
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.max_grad_norm = max_grad_norm
-        self.max_grad_value = max_grad_value
         self.state = TrainState()
         self.logger = logger or logging.getLogger(__name__)
+        # Evaluation parameters
         self.eval_every = int(config.EVALUATION.EVAL_EVERY)
         self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
+        
+        # Training parameters
         self.epochs = int(config.TRAINING.EPOCHS)
+        self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
+        self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
+        
+        breakpoint()
+
+        if self.max_grad_norm is None and self.max_grad_value is None:
+            raise ValueError(
+                "Either MAX_GRAD_NORM or MAX_GRAD_VALUE must be specified in the config"
+            )
+        if self.max_grad_norm is not None and self.max_grad_value is not None:
+            raise ValueError(
+                "Only one of MAX_GRAD_NORM or MAX_GRAD_VALUE may be specified"
+        )
+        print("self.max_grad_norm", self.max_grad_norm)
+        print("self.max_grad_value", self.max_grad_value)
+        breakpoint()
 
     # ------------------------------------------------------------------
     # Training utilities
