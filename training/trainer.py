@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
-from contextlib import nullcontext
 
 import torch
 import torch.nn.functional as F
@@ -139,14 +138,13 @@ class Trainer:
             desc=f"Eval {self.state.epoch + 1}",
         )
         for batch in progress_bar:
-            ctx = (
-                self.accelerator.autocast()
-                if self.accelerator is not None
-                else nullcontext()
-            )
-            with ctx:
-                latents = self.model.encode_inputs(batch)
-            total_loss += latents.mean().item()
+            if self.accelerator is not None:
+                with self.accelerator.autocast():
+                    prediction, target = self.model(batch)
+            else:
+                prediction, target = self.model(batch)
+            loss = F.mse_loss(prediction.float(), target.float())
+            total_loss += loss.item()
             progress_bar.set_postfix(
                 loss=total_loss / max(progress_bar.n, 1), refresh=False
             )
