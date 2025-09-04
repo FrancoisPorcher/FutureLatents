@@ -71,7 +71,6 @@ class Trainer:
         self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
         self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
         
-        breakpoint()
 
         if self.max_grad_norm is None and self.max_grad_value is None:
             raise ValueError(
@@ -81,9 +80,6 @@ class Trainer:
             raise ValueError(
                 "Only one of MAX_GRAD_NORM or MAX_GRAD_VALUE may be specified"
         )
-        print("self.max_grad_norm", self.max_grad_norm)
-        print("self.max_grad_value", self.max_grad_value)
-        breakpoint()
 
     # ------------------------------------------------------------------
     # Training utilities

@@ -193,6 +193,11 @@ class DiT(nn.Module):
 
         The ``context_latents`` provide conditioning through adaptive layer
         normalisation (AdaLN) parameters applied at every block.
+        
+        Args:
+            context_latents: Latents used for conditioning of shape (B, N_context, D)
+            target_latents: Latents to be transformed of shape (B, N_target, D)
+            timesteps: Timesteps for each element in the batch of shape (B,)
         """
         context = context_latents[:, 0]
         context_params = self.context_mlp(context)
