@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Tuple
 
 import logging
 
@@ -53,6 +53,9 @@ class LatentVideoModel(nn.Module):
         dit_cfg["gradient_checkpointing"] = gc
         self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
         self.gradient_checkpointing = gc
+
+        # Number of context latents used during training
+        self.num_context_latents = getattr(config.MODEL, "NUM_CONTEXT_LATENTS", 0)
 
         # Noise scheduler used during training
         num_train_timesteps = int(fm_cfg.NUM_TRAIN_TIMESTEPS)
@@ -114,6 +117,16 @@ class LatentVideoModel(nn.Module):
             return inputs["embedding"]
         raise ValueError("`inputs` must contain either 'video' or 'embedding'")
 
+    def split_latents(self, latents: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Split ``latents`` into context and target parts."""
+
+        n = int(self.num_context_latents)
+        if n < 0 or n > latents.shape[1]:
+            raise ValueError("`num_context_latents` is out of bounds")
+        context = latents[:, :n]
+        target = latents[:, n:]
+        return context, target
+
     def forward(self, batch: Dict[str, Any]):
         """Encode ``batch`` and predict the added noise.
 
@@ -123,19 +136,25 @@ class LatentVideoModel(nn.Module):
         """
 
         latents = self.encode_inputs(batch)
-        noise = torch.randn_like(latents)
+        context_latents, target_latents = self.split_latents(latents)
+
+        noise = torch.randn_like(target_latents)
         timesteps = torch.randint(
             0,
             self.noise_scheduler.config.num_train_timesteps,
-            (latents.shape[0],),
-            device=latents.device,
+            (target_latents.shape[0],),
+            device=target_latents.device,
             dtype=torch.long,
         )
-        noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
+        noisy_target_latents = self.noise_scheduler.add_noise(
+            target_latents, noise, timesteps
+        )
 
         if self.flow_transformer is None:
             raise RuntimeError("Flow transformer is not initialised")
-        prediction = self.flow_transformer(noisy_latents, timesteps)
+        prediction = self.flow_transformer(
+            context_latents, noisy_target_latents, timesteps
+        )
         return prediction, noise
 
     # ------------------------------------------------------------------
