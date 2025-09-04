@@ -1,0 +1,49 @@
+{
+  "os": "Linux-5.15.0-1061-nvidia-x86_64-with-glibc2.35",
+  "python": "CPython 3.10.18",
+  "startedAt": "2025-09-04T12:12:07.698474Z",
+  "args": [
+    "--config_path",
+    "configs/vjepa2_kinetics_400.yaml"
+  ],
+  "program": "-m src.main",
+  "git": {
+    "remote": "git@github.com:FrancoisPorcher/FutureLatents.git",
+    "commit": "86eb148267d382e5812f3c89dd0a8f374699ccb8"
+  },
+  "email": "francois_porcher@berkeley.edu",
+  "root": "/private/home/francoisporcher/FutureLatents",
+  "host": "devfair0607",
+  "executable": "/private/home/francoisporcher/.conda/envs/future_latents/bin/python3.10",
+  "cpu_count": 40,
+  "cpu_count_logical": 80,
+  "gpu": "Quadro GV100",
+  "gpu_count": 2,
+  "disk": {
+    "/": {
+      "total": "250374057984",
+      "used": "124595118080"
+    }
+  },
+  "memory": {
+    "total": "810160443392"
+  },
+  "gpu_nvidia": [
+    {
+      "name": "Quadro GV100",
+      "memoryTotal": "34359738368",
+      "cudaCores": 5120,
+      "architecture": "Volta",
+      "uuid": "GPU-2ff3644f-6e25-d962-9b9d-4f1452e70e58"
+    },
+    {
+      "name": "Quadro GV100",
+      "memoryTotal": "34359738368",
+      "cudaCores": 5120,
+      "architecture": "Volta",
+      "uuid": "GPU-a3a74c53-c1cd-3fd5-ffff-ea2f3c28ea35"
+    }
+  ],
+  "cudaVersion": "12.4",
+  "writerId": "kz47vey1vafes5g2tlv8auvtr21203wl"
+}

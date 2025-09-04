@@ -14,7 +14,7 @@ trainer:
     eval_every: 1
     eval_first: true
 model:
-  num_context_latents: 0
+  num_context_latents: 16
   flow_matching:
     num_train_timesteps: 1000
     dit:

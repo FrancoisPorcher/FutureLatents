@@ -140,7 +140,7 @@ class DiT(nn.Module):
 
         ``context_latents`` is currently unused but accepted for API compatibility.
         """
-
+        context_latents = context_latents
         x = target_latents
         t_emb = timestep_embedding(timesteps, self.hidden_dim)
         t_emb = self.time_mlp(t_emb)

@@ -12,7 +12,7 @@ from diffusers import DDPMScheduler
 from transformers import AutoModel, AutoVideoProcessor
 
 from models.DiT import DiT
-
+from einops import rearrange
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +55,7 @@ class LatentVideoModel(nn.Module):
         self.gradient_checkpointing = gc
 
         # Number of context latents used during training
-        self.num_context_latents = getattr(config.MODEL, "NUM_CONTEXT_LATENTS", 0)
+        self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
 
         # Noise scheduler used during training
         num_train_timesteps = int(fm_cfg.NUM_TRAIN_TIMESTEPS)
@@ -108,7 +108,7 @@ class LatentVideoModel(nn.Module):
             video = self.preprocessor(inputs["video"], return_tensors="pt")[
                 "pixel_values_videos"
             ]
-            return self.encoder.get_vision_features(video)
+            return self.encoder.get_vision_features(video, keep_spatio_temporal_dimension=True)
         if "embedding" in inputs:
             if self.encoder is not None:
                 raise ValueError(
@@ -121,10 +121,10 @@ class LatentVideoModel(nn.Module):
         """Split ``latents`` into context and target parts."""
 
         n = int(self.num_context_latents)
-        if n < 0 or n > latents.shape[1]:
+        if n < 0 or n > latents.shape[2]:
             raise ValueError("`num_context_latents` is out of bounds")
-        context = latents[:, :n]
-        target = latents[:, n:]
+        context = latents[:, :, :n, :, :]
+        target = latents[:, :, n:, :, :]
         return context, target
 
     def forward(self, batch: Dict[str, Any]):
@@ -135,8 +135,10 @@ class LatentVideoModel(nn.Module):
         target noise so that the caller can compute the loss.
         """
 
-        latents = self.encode_inputs(batch)
-        context_latents, target_latents = self.split_latents(latents)
+        latents = self.encode_inputs(batch) # [B, D, T, H, W]
+        context_latents, target_latents = self.split_latents(latents) # [B, D, n, H, W], [B, D, T-n, H, W]
+        context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
+        target_latents = rearrange(target_latents, "b d t h w -> b (t h w) d")
 
         noise = torch.randn_like(target_latents)
         timesteps = torch.randint(

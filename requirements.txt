@@ -8,3 +8,4 @@ omegaconf
 accelerate
 diffusers
 wandb
+einops
