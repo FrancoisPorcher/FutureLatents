@@ -24,5 +24,11 @@ def create_parser() -> argparse.ArgumentParser:
         help="Path to the config file.",
     )
 
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Run in debug mode without Weights & Biases logging.",
+    )
+
     return parser
 
