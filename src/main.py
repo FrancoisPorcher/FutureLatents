@@ -72,7 +72,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    use_wandb = config.WANDB
+    use_wandb = config.WANDB and not getattr(args, "debug", False)
     print("use_wandb", use_wandb)
 
     if accelerator.is_main_process:
