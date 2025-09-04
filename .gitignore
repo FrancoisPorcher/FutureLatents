@@ -26,3 +26,6 @@ venv/
 
 # MacOS
 .DS_Store
+
+# W&B logs
+wandb/

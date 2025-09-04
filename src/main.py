@@ -71,16 +71,19 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
-    
+
+    use_wandb = bool(getattr(config, "WANDB", False))
+
     if accelerator.is_main_process:
         model.count_parameters()
         print_config(config)
-        wandb.init(project="FutureLatent")
+        if use_wandb:
+            wandb.init(project="FutureLatent")
 
     model, optimizer, train_dataloader, val_dataloader, scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, val_dataloader, scheduler)
 
-    if accelerator.is_main_process:
+    if accelerator.is_main_process and use_wandb:
         wandb.watch(model, log="gradients", log_freq=100)
 
     max_grad_norm = config.TRAINER.TRAINING.MAX_GRAD_NORM
@@ -108,7 +111,7 @@ def main() -> None:
 
     trainer.fit(train_dataloader, val_dataloader)
 
-    if accelerator.is_main_process:
+    if accelerator.is_main_process and use_wandb and wandb.run is not None:
         wandb.finish()
 
 

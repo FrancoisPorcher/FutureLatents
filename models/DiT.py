@@ -118,6 +118,11 @@ class DiT(nn.Module):
         self.max_time_embeddings = max_time_embeddings
         self.gradient_checkpointing = gradient_checkpointing
 
+        self.context_mlp = nn.Sequential(
+            nn.LayerNorm(input_dim),
+            nn.Linear(input_dim, hidden_dim * 2),
+        )
+        self.in_norm = nn.LayerNorm(hidden_dim)
         self.in_proj = nn.Linear(input_dim, hidden_dim)
         self.time_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 4),
@@ -138,13 +143,18 @@ class DiT(nn.Module):
     ) -> torch.Tensor:
         """Apply the transformer to ``target_latents`` conditioned on ``timesteps``.
 
-        ``context_latents`` is currently unused but accepted for API compatibility.
+        The ``context_latents`` provide additional conditioning through adaptive
+        layer normalisation (AdaLN) which shifts and scales the token features
+        based on the surrounding frames.
         """
-        context_latents = context_latents
+        context = context_latents.mean(dim=1)
+        shift, scale = self.context_mlp(context).chunk(2, dim=-1)
         x = target_latents
         t_emb = timestep_embedding(timesteps, self.hidden_dim)
         t_emb = self.time_mlp(t_emb)
         x = self.in_proj(x)
+        x = self.in_norm(x)
+        x = x * (1 + scale[:, None, :]) + shift[:, None, :]
         x = x + t_emb[:, None, :]
         for block in self.blocks:
             if self.gradient_checkpointing:
