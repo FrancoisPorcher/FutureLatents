@@ -32,13 +32,21 @@ def load_config(path: Path) -> DictConfig:
     """
     cfg = OmegaConf.load(path)
     inherits = cfg.pop("inherits", [])
+    # Uppercase keys early so that later merges use consistent casing.
+    # Otherwise, merging a lowercase override (e.g. ``trainer``) with an
+    # uppercase base config (``TRAINER``) results in duplicate keys where the
+    # override replaces the entire subtree when converted to uppercase at the
+    # end. This led to required defaults like ``GRADIENT_CHECKPOINTING`` being
+    # dropped from ``TRAINER.TRAINING``.
+    cfg = _uppercase_keys(cfg)
+
     merged = OmegaConf.create()
     for rel in inherits:
         sub_path = (path.parent / rel).resolve()
         sub_cfg = load_config(sub_path)
         merged = _merge_with_conflict(merged, sub_cfg)
     merged = _merge_with_conflict(merged, cfg)
-    return _uppercase_keys(merged)
+    return merged
 
 
 def print_config(config: DictConfig) -> None:
