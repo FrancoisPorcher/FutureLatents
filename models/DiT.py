@@ -417,6 +417,12 @@ class LatentVideoModel(nn.Module):
     def trainable_modules(self) -> Iterable[nn.Parameter]:  # pragma: no cover
         return self.trainable_parameters()
 
+    def count_parameters(self) -> int:
+        """Return the number of trainable parameters and log it."""
+        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        logger.info("Trainable parameters: %.2fM", n_params / 1e6)
+        return n_params
+
     # ------------------------------------------------------------------
     # Forward helpers
     # ------------------------------------------------------------------
@@ -512,6 +518,12 @@ class DeterministicLatentVideoModel(nn.Module):
 
     def trainable_modules(self) -> Iterable[nn.Parameter]:  # pragma: no cover
         return self.trainable_parameters()
+
+    def count_parameters(self) -> int:
+        """Return the number of trainable parameters and log it."""
+        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        logger.info("Trainable parameters: %.2fM", n_params / 1e6)
+        return n_params
 
     # ------------------------------------------------------------------
     # Forward helpers
