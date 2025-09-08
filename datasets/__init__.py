@@ -21,7 +21,26 @@ def build_dataset(config: DictConfig):
     specifying which dataset to construct. The entry name is used to select the
     appropriate dataset class.
     """
+    # Check if we're in single video overfitting mode
+    if config.TRAINER.TRAINING.get("overfit_single_video", False):
+        from .kinetics_400 import SingleVideoDataset
+        video_path = config.TRAINER.TRAINING.overfit_video_path
+        if not video_path:
+            raise ValueError("overfit_video_path must be specified when overfit_single_video is True")
+        
+        datasets_cfg = config.DATASETS
+        if len(datasets_cfg) != 1:
+            raise ValueError("Config must contain exactly one dataset specification")
+        name = next(iter(datasets_cfg)).lower()
+        dataset_cfg = getattr(config.DATASETS, name.upper())
+        
+        return SingleVideoDataset(
+            video_path=video_path,
+            n_frame=dataset_cfg.N_FRAME,
+            stride=dataset_cfg.STRIDE
+        )
 
+    # Regular dataset building
     datasets_cfg = config.DATASETS
     if len(datasets_cfg) != 1:
         raise ValueError("Config must contain exactly one dataset specification")

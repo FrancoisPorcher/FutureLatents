@@ -37,6 +37,59 @@ def load_n_frames_with_padding(vr: VideoReader, n_frame: int, stride: int) -> Tu
         frames = frames[:n_frame]  # safeguard
     return frames, padded
 
+class SingleVideoDataset(Dataset):
+    """Dataset for training on a single video (overfitting).
+    
+    Parameters
+    ----------
+    video_path:
+        Path to the video file to train on.
+    n_frame:
+        Number of frames to extract.
+    stride:
+        Stride between frames.
+    """
+    
+    def __init__(self, video_path: str, n_frame: int, stride: int) -> None:
+        self.video_path = video_path
+        self.n_frame = n_frame
+        self.stride = stride
+        
+        # Create a simple dataframe with just one video
+        self.dataframe = pd.DataFrame({
+            "video_path": [video_path],
+            "index": [0],
+            "label": ["single_video"]
+        })
+        
+    def __len__(self) -> int:
+        """Always return 1 since we're working with a single video."""
+        return 1
+        
+    def __getitem__(self, k):
+        video_path = self.dataframe.loc[0, "video_path"]
+        
+        vr = VideoReader(video_path)
+        n_frames_original_video = len(vr)
+        video, padded = load_n_frames_with_padding(vr, self.n_frame, self.stride)
+        video_tensor = torch.from_numpy(video).permute(0, 3, 1, 2)  # [n_frame,C,H,W]
+        
+        n_frames, C, H, W = video_tensor.shape
+        
+        return {
+            "video": video_tensor,
+            "index": 0,
+            "label": "single_video",
+            "video_path": video_path,
+            "n_frames_original_video": n_frames_original_video,
+            "n_frames": n_frames,
+            "C_original": C,
+            "H_original": H,
+            "W_original": W,
+            "padded": padded,
+        }
+
+
 class Kinetics400(Dataset):
     """Dataset representing the Kinetics-400 annotation CSV.
 

@@ -5,6 +5,8 @@ trainer:
     weight_decay: 0.01
     num_workers: 8
     gradient_accumulation_steps: 1
+    overfit_single_video: false  # Set to true to train on a single video
+    overfit_video_path: null     # Path to the video file for overfitting
     find_unused_parameters: true
     mixed_precision: fp16
     gradient_checkpointing: true
