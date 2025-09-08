@@ -105,6 +105,34 @@ class MultiheadSelfAttention(nn.Module):
         return self.proj(x)
 
 
+class MultiheadCrossAttention(nn.Module):
+    """Cross-attention between ``x`` and ``context`` tokens."""
+
+    def __init__(self, dim: int, num_heads: int) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
+        self.q_proj = nn.Linear(dim, dim)
+        self.k_proj = nn.Linear(dim, dim)
+        self.v_proj = nn.Linear(dim, dim)
+        self.proj = nn.Linear(dim, dim)
+
+    def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape
+        M = context.shape[1]
+        q = self.q_proj(x)
+        k = self.k_proj(context)
+        v = self.v_proj(context)
+        q = q.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.view(B, M, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.view(B, M, self.num_heads, self.head_dim).transpose(1, 2)
+        with sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION):
+            x = scaled_dot_product_attention(q, k, v)
+        x = x.transpose(1, 2).contiguous().view(B, N, C)
+        return self.proj(x)
+
+
 class DiTBlock(nn.Module):
     """Transformer block consisting of self-attention and an MLP."""
 
@@ -117,26 +145,43 @@ class DiTBlock(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.attn = MultiheadSelfAttention(dim, num_heads)
+        self.norm_cross = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
+        self.cross_attn = MultiheadCrossAttention(dim, num_heads)
         self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.mlp = MLP(dim, int(dim * mlp_ratio))
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(dim, 6 * dim, bias=True),
+            nn.Linear(dim, 9 * dim, bias=True),
         )
 
     @staticmethod
     def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
         return x * (1 + scale[:, None, :]) + shift[:, None, :]
 
-    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-            self.adaLN_modulation(c).chunk(6, dim=1)
-        )
+    def forward(
+        self, x: torch.Tensor, c: torch.Tensor, context: torch.Tensor
+    ) -> torch.Tensor:
+        (
+            shift_msa,
+            scale_msa,
+            gate_msa,
+            shift_ca,
+            scale_ca,
+            gate_ca,
+            shift_mlp,
+            scale_mlp,
+            gate_mlp,
+        ) = self.adaLN_modulation(c).chunk(9, dim=1)
         residual = x
         x = self.norm1(x)
         x = self.modulate(x, shift_msa, scale_msa)
         x = self.attn(x)
         x = residual + gate_msa[:, None, :] * x
+        residual = x
+        x = self.norm_cross(x)
+        x = self.modulate(x, shift_ca, scale_ca)
+        x = self.cross_attn(x, context)
+        x = residual + gate_ca[:, None, :] * x
         residual = x
         x = self.norm2(x)
         x = self.modulate(x, shift_mlp, scale_mlp)
@@ -206,27 +251,27 @@ class DiT(nn.Module):
     ) -> torch.Tensor:
         """Apply the transformer to ``target_latents`` conditioned on ``timesteps``.
 
-        The ``context_latents`` provide conditioning through adaptive layer
-        normalisation (AdaLN) parameters applied at every block.
+        The ``context_latents`` are attended to via cross attention while the
+        adaptive layer normalisation (AdaLN) is conditioned only on the
+        ``timesteps``.
         
         Args:
             context_latents: Latents used for conditioning of shape (B, N_context, D)
             target_latents: Latents to be transformed of shape (B, N_target, D)
             timesteps: Timesteps for each element in the batch of shape (B,)
         """
-        context_params = self.context_mlp(context_latents).mean(dim=1)
+        context_tokens = self.context_mlp(context_latents)
         t_emb = timestep_embedding(timesteps, self.hidden_dim)
-        t_emb = self.time_mlp(t_emb)
-        c = context_params + t_emb
+        c = self.time_mlp(t_emb)
 
         x = self.in_proj(target_latents)
         x = self.in_norm(x)
 
         for block in self.blocks:
             if self.gradient_checkpointing:
-                x = checkpoint(block, x, c, use_reentrant=False)
+                x = checkpoint(block, x, c, context_tokens, use_reentrant=False)
             else:
-                x = block(x, c)
+                x = block(x, c, context_tokens)
         x = self.final_layer(x, c)
         return x
 
