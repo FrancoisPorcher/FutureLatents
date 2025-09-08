@@ -13,7 +13,7 @@ trainer:
     max_grad_norm: 1.0
     max_grad_value: null
     epochs: 1
-    normalize_embeddings: false
+    normalize_embeddings: true
   evaluation:
     eval_every: 1
     eval_first: false

@@ -142,6 +142,7 @@ class LatentVideoModel(nn.Module):
         latents = self.encode_inputs(batch)  # [B, D, T, H, W]
         if self.normalize_embeddings:
             latents = F.normalize(latents, dim=1)
+        breakpoint()
         context_latents, target_latents = self.split_latents(latents)  # [B, D, n, H, W], [B, D, T-n, H, W]
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents = rearrange(target_latents, "b d t h w -> b (t h w) d")
@@ -163,6 +164,10 @@ class LatentVideoModel(nn.Module):
         prediction = self.flow_transformer(
             context_latents, noisy_target_latents, timesteps
         )
+        print("noise.shape", noise.shape)
+        print(f"noisy latent shape {noisy_target_latents.shape}")
+        
+        breakpoint()
         return prediction, noise
 
     # ------------------------------------------------------------------
