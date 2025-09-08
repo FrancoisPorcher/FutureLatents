@@ -8,6 +8,7 @@ import logging
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from diffusers import DDPMScheduler
 from transformers import AutoModel, AutoVideoProcessor
 
@@ -56,6 +57,9 @@ class LatentVideoModel(nn.Module):
 
         # Number of context latents used during training
         self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
+
+        # Optionally normalise embeddings after extraction
+        self.normalize_embeddings = config.TRAINER.TRAINING.NORMALIZE_EMBEDDINGS
 
         # Noise scheduler used during training
         num_train_timesteps = int(fm_cfg.NUM_TRAIN_TIMESTEPS)
@@ -135,8 +139,10 @@ class LatentVideoModel(nn.Module):
         target noise so that the caller can compute the loss.
         """
 
-        latents = self.encode_inputs(batch) # [B, D, T, H, W]
-        context_latents, target_latents = self.split_latents(latents) # [B, D, n, H, W], [B, D, T-n, H, W]
+        latents = self.encode_inputs(batch)  # [B, D, T, H, W]
+        if self.normalize_embeddings:
+            latents = F.normalize(latents, dim=1)
+        context_latents, target_latents = self.split_latents(latents)  # [B, D, n, H, W], [B, D, T-n, H, W]
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents = rearrange(target_latents, "b d t h w -> b (t h w) d")
 
