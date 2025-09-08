@@ -70,6 +70,12 @@ class Trainer:
         self.epochs = int(config.TRAINING.EPOCHS)
         self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
         self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
+        loss_name = str(config.TRAINING.LOSS).lower()
+        loss_map = {"mse": F.mse_loss, "l1": F.l1_loss}
+        try:
+            self.criterion = loss_map[loss_name]
+        except KeyError as exc:  # pragma: no cover - config error
+            raise ValueError("LOSS must be 'mse' or 'l1'") from exc
         
 
         if self.max_grad_norm is None and self.max_grad_value is None:
@@ -85,7 +91,7 @@ class Trainer:
     # Training utilities
     # ------------------------------------------------------------------
     def train_step(self, batch: dict) -> float:
-        """Perform a single optimisation step using flow matching."""
+        """Perform a single optimisation step."""
 
         self.model.train()
         if self.accelerator is None:
@@ -96,7 +102,7 @@ class Trainer:
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 prediction, target = self.model(batch)
-                loss = F.mse_loss(prediction, target)
+                loss = self.criterion(prediction, target)
             self.accelerator.backward(loss)
             if self.max_grad_norm is not None:
                 self.accelerator.clip_grad_norm_(
@@ -164,7 +170,7 @@ class Trainer:
             with self.accelerator.autocast():
                 prediction, target = self.model(batch)
             # loss computed in fp32
-            loss = F.mse_loss(prediction.float(), target.float())
+            loss = self.criterion(prediction.float(), target.float())
             total_loss += loss.item()
             if wandb.run is not None and self.accelerator.is_main_process:
                 wandb.log({"eval/loss": loss.item()}, step=self.state.step)

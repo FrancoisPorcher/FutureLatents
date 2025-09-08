@@ -1,0 +1,19 @@
+inherits:
+  - datasets/kinetics_400.yaml
+  - backbones/vjepa2.yaml
+  - training/trainer.yaml
+model:
+  type: deterministic
+  num_context_latents: 16
+  flow_matching: null
+  predictor:
+    dit:
+      input_dim: 1024
+      hidden_dim: 1024
+      depth: 12
+      num_heads: 8
+      mlp_ratio: 4.0
+trainer:
+  training:
+    loss: l1
+encoder_trainable: false

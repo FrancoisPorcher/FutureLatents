@@ -14,10 +14,12 @@ trainer:
     max_grad_value: null
     epochs: 1
     normalize_embeddings: true
+    loss: mse
   evaluation:
     eval_every: 1
     eval_first: false
 model:
+  type: flow_matching
   num_context_latents: 16
   flow_matching:
     num_train_timesteps: 1000
