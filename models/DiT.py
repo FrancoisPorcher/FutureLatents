@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 import logging
 from typing import Any, Dict, Iterable, Tuple
-from types import SimpleNamespace
 
 import torch
 import torch.nn as nn
@@ -482,9 +481,10 @@ class DeterministicLatentVideoModel(LatentVideoModel):
         # can reuse the parent initialisation logic.
         fm_cfg = getattr(config.MODEL, "FLOW_MATCHING", None)
         if fm_cfg is None:
-            config.MODEL.FLOW_MATCHING = SimpleNamespace(
-                NUM_TRAIN_TIMESTEPS=1, DIT=None
-            )
+            config.MODEL.FLOW_MATCHING = {
+                "NUM_TRAIN_TIMESTEPS": 1,
+                "DIT": None,
+            }
         elif getattr(fm_cfg, "NUM_TRAIN_TIMESTEPS", None) is None:
             fm_cfg.NUM_TRAIN_TIMESTEPS = 1
 
