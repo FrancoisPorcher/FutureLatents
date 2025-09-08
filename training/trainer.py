@@ -259,10 +259,36 @@ class Trainer:
             ):
                 wandb.log(epoch_log, step=self.state.step)
 
-            if ckpt_path is not None and (epoch + 1) % save_every == 0:
-                filename = ckpt_path / f"checkpoint_epoch_{epoch + 1}.pt"
-                self.save_checkpoint(filename)
+        if ckpt_path is not None and (epoch + 1) % save_every == 0:
+            filename = ckpt_path / f"checkpoint_epoch_{epoch + 1}.pt"
+            self.save_checkpoint(filename)
 
 
-__all__ = ["Trainer", "TrainState"]
+class DeterministicTrainer(Trainer):
+    """Trainer variant for deterministic models."""
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        config: object,
+        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+        accelerator: Optional[Accelerator] = None,
+        logger: Optional[logging.Logger] = None,
+    ) -> None:
+        super().__init__(
+            model=model,
+            optimizer=optimizer,
+            config=config,
+            scheduler=scheduler,
+            accelerator=accelerator,
+            logger=logger,
+        )
+        # Deterministic models use an L1 objective and are evaluated before
+        # the first training epoch.
+        self.criterion = F.l1_loss
+        self.eval_first = True
+
+
+__all__ = ["Trainer", "TrainState", "DeterministicTrainer"]
 

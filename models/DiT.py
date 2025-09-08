@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import logging
 from typing import Any, Dict, Iterable, Tuple
+from types import SimpleNamespace
 
 import torch
 import torch.nn as nn
@@ -472,22 +473,22 @@ class LatentVideoModel(nn.Module):
         return prediction, velocity
 
 
-class DeterministicLatentVideoModel(nn.Module):
+class DeterministicLatentVideoModel(LatentVideoModel):
     """Predict future latent tokens directly with an L1 objective."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
-        super().__init__()
-        self.config = config
-        backbone_cfg = config.BACKBONE
-        hf_repo = getattr(backbone_cfg, "HF_REPO", None)
-        if hf_repo:
-            self.encoder = AutoModel.from_pretrained(hf_repo)
-            self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
-            logger.info(f"Loaded backbone encoder from {hf_repo}")
-        else:
-            self.encoder = None
-            self.preprocessor = None
-            logger.info("No backbone encoder, operating directly on latents")
+        # ``LatentVideoModel`` expects a flow matching configuration.  When
+        # working with deterministic prediction we provide a minimal stub so we
+        # can reuse the parent initialisation logic.
+        fm_cfg = getattr(config.MODEL, "FLOW_MATCHING", None)
+        if fm_cfg is None:
+            config.MODEL.FLOW_MATCHING = SimpleNamespace(
+                NUM_TRAIN_TIMESTEPS=1, DIT=None
+            )
+        elif getattr(fm_cfg, "NUM_TRAIN_TIMESTEPS", None) is None:
+            fm_cfg.NUM_TRAIN_TIMESTEPS = 1
+
+        super().__init__(config)
 
         pred_cfg = config.MODEL.PREDICTOR
         dit_cfg = getattr(pred_cfg, "DIT", None) or {}
@@ -496,63 +497,10 @@ class DeterministicLatentVideoModel(nn.Module):
         dit_cfg["gradient_checkpointing"] = gc
         self.predictor = PredictorTransformer(**dit_cfg) if dit_cfg else None
 
-        self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
-        self.normalize_embeddings = config.TRAINER.TRAINING.NORMALIZE_EMBEDDINGS
-
-        trainable = config.ENCODER_TRAINABLE
-        self.set_encoder_trainable(trainable)
-
-    # ------------------------------------------------------------------
-    # Training helpers
-    # ------------------------------------------------------------------
-    def set_encoder_trainable(self, trainable: bool) -> None:
-        if self.encoder is None:
-            logger.info("No encoder to (un)freeze")
-            return
-        for param in self.encoder.parameters():
-            param.requires_grad = trainable
-        logger.info("Encoder is %s", "trainable" if trainable else "frozen")
-
-    def trainable_parameters(self) -> Iterable[nn.Parameter]:  # pragma: no cover
-        return (p for p in self.parameters() if p.requires_grad)
-
-    def trainable_modules(self) -> Iterable[nn.Parameter]:  # pragma: no cover
-        return self.trainable_parameters()
-
-    def count_parameters(self) -> int:
-        """Return the number of trainable parameters and log it."""
-        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        logger.info("Trainable parameters: %.2fM", n_params / 1e6)
-        return n_params
-
-    # ------------------------------------------------------------------
-    # Forward helpers
-    # ------------------------------------------------------------------
-    def encode_inputs(self, inputs: Dict[str, Any]):
-        if "video" in inputs:
-            if self.encoder is None:
-                raise ValueError("`video` provided in inputs but no encoder is initialised")
-            video = self.preprocessor(inputs["video"], return_tensors="pt")[
-                "pixel_values_videos"
-            ]
-            return self.encoder.get_vision_features(
-                video, keep_spatio_temporal_dimension=True
-            )
-        if "embedding" in inputs:
-            if self.encoder is not None:
-                raise ValueError(
-                    "`embedding` provided in inputs but encoder is initialised; remove the encoder to use cached embeddings"
-                )
-            return inputs["embedding"]
-        raise ValueError("`inputs` must contain either 'video' or 'embedding'")
-
-    def split_latents(self, latents: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        n = int(self.num_context_latents)
-        if n < 0 or n > latents.shape[2]:
-            raise ValueError("`num_context_latents` is out of bounds")
-        context = latents[:, :, :n, :, :]
-        target = latents[:, :, n:, :, :]
-        return context, target
+        # The flow transformer and training timesteps are not used for
+        # deterministic prediction.
+        self.flow_transformer = None
+        self.num_train_timesteps = None
 
     def forward(self, batch: Dict[str, Any]):
         latents = self.encode_inputs(batch)

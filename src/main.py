@@ -7,7 +7,7 @@ from copy import deepcopy
 # ``PYTHONPATH``.
 from models import build_model
 from datasets import build_dataset
-from training.trainer import Trainer
+from training.trainer import Trainer, DeterministicTrainer
 from utils.parser import create_parser
 from utils.config import load_config, print_config
 import torch
@@ -87,7 +87,12 @@ def main() -> None:
     if accelerator.is_main_process and use_wandb:
         wandb.watch(model, log="gradients", log_freq=100)
 
-    trainer = Trainer(
+    trainer_cls = (
+        DeterministicTrainer
+        if str(config.MODEL.TYPE).lower() == "deterministic"
+        else Trainer
+    )
+    trainer = trainer_cls(
         model=model,
         optimizer=optimizer,
         config=config.TRAINER,
