@@ -1,8 +1,14 @@
 # FutureLatents
 
-FutureLatents explores world models that predict future visual representations directly in latent space, conditioned (or not), on previous video frames.
+FutureLatents explores world models that predict the remainder of a video by
+operating directly in latent space. Given a set of initial context frames, the
+model generates the future latent representations in a purely conditioned
+fashion.
 
-It currently supports VJEPA2 backbone and the Kinetics 400 dataset, and also provides a `Kinetics400_cached` variant for training on pre-computed embeddings. Will soon support DinoV3 and 4DS backbones, and Kinetics 700, WISA, Something Something V2 datasets.
+It currently targets the VJEPA2 backbone and the Kinetics 400 dataset and
+provides a `Kinetics400_cached` variant for training on pre-computed
+embeddings.  Future work will extend support to additional backbones and
+datasets.
 
 
 ## Installation
@@ -17,12 +23,15 @@ It currently supports VJEPA2 backbone and the Kinetics 400 dataset, and also pro
 ## Project structure
 
 ```
-configs/   YAML experiment configuration files
-datasets/  Dataset wrappers such as Kinetics‑400 and Kinetics‑400 cached
-models/    Model components including the flow transformer
-src/       Core library code and entry point
-training/  Minimal training script
-notebooks/ Exploratory notebooks (empty placeholder)
+configs/     YAML experiment configuration files
+data/        Placeholder for dataset files (not tracked)
+dataloader/  Utilities for constructing PyTorch dataloaders
+datasets/    Dataset wrappers such as Kinetics‑400 and Kinetics‑400 cached
+models/      Model components including flow and deterministic transformers
+src/         Core library code and entry point
+training/    Minimal training script
+utils/       Miscellaneous helpers
+notebooks/   Exploratory notebooks (empty placeholder)
 ```
 
 ## Configuration
@@ -39,14 +48,17 @@ inherits:
 encoder_trainable: false
 ```
 
-Run `utils.config.load_config` to resolve the hierarchy and `utils.config.print_config` to display it.
+Run `utils.config.load_config` to resolve the hierarchy and
+`utils.config.print_config` to display it.
 
-The training configuration additionally supports a `mixed_precision` field
-(`"no"`, `"fp16"` or `"bf16"`) that is forwarded to the Hugging Face
-`Accelerator` for mixed precision training. A `gradient_checkpointing` flag
-enables PyTorch's gradient checkpointing for reduced memory usage. Optional
-`max_grad_norm` and `max_grad_value` settings clip gradients via the
-accelerator to stabilise training.
+The `trainer.training` section controls optimisation and currently exposes a
+`loss` field that selects between mean-squared error (`mse`) and L1 loss
+(`l1`).  It also supports a `mixed_precision` field (`"no"`, `"fp16"` or
+`"bf16"`) that is forwarded to the Hugging Face `Accelerator` for mixed
+precision training.  A `gradient_checkpointing` flag enables PyTorch's
+gradient checkpointing for reduced memory usage.  Optional `max_grad_norm` and
+`max_grad_value` settings clip gradients via the accelerator to stabilise
+training.
 
 ### Flow matching
 
@@ -57,12 +69,38 @@ configuration for the diffusion transformer (DiT) used to predict the noise at
 each step.  The `LatentVideoModel` reads these values to build its internal DiT
 module.
 
+### Deterministic prediction
+
+Alternatively, FutureLatents offers a deterministic path that dispenses with
+diffusion and directly regresses future latents from the context frames using a
+`PredictorTransformer`.  To enable it, set `model.type` to `deterministic` and
+provide the predictor configuration under `model.predictor`:
+
+```yaml
+model:
+  type: deterministic
+  num_context_latents: 16
+  predictor:
+    dit:
+      input_dim: 1024
+      hidden_dim: 1024
+      depth: 12
+      num_heads: 8
+      mlp_ratio: 4.0
+```
+
+This `DeterministicLatentVideoModel` predicts the remaining latents in a single
+forward pass and optimises the reconstruction `loss` specified in the training
+configuration.
+
 ## Usage
 
 Print the resolved configuration, instantiate the dataset and model and set up the optimiser:
 
 ```bash
 python -m src.main --config_path configs/vjepa2_kinetics_400.yaml
+# or the deterministic variant
+python -m src.main --config_path configs/vjepa2_kinetics_400_deterministic.yaml
 ```
 
 A minimal training example that freezes the encoder and builds an `AdamW` optimiser over trainable
