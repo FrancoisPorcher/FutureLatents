@@ -9,7 +9,6 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from diffusers import DDPMScheduler
 from transformers import AutoModel, AutoVideoProcessor
 
 from models.DiT import DiT
@@ -61,9 +60,8 @@ class LatentVideoModel(nn.Module):
         # Optionally normalise embeddings after extraction
         self.normalize_embeddings = config.TRAINER.TRAINING.NORMALIZE_EMBEDDINGS
 
-        # Noise scheduler used during training
-        num_train_timesteps = int(fm_cfg.NUM_TRAIN_TIMESTEPS)
-        self.noise_scheduler = DDPMScheduler(num_train_timesteps=num_train_timesteps)
+        # Store maximum timestep embedding range for continuous flow matching
+        self.num_train_timesteps = int(fm_cfg.NUM_TRAIN_TIMESTEPS)
 
         # Configure whether the encoder should be trainable
         trainable = config.ENCODER_TRAINABLE
@@ -132,43 +130,33 @@ class LatentVideoModel(nn.Module):
         return context, target
 
     def forward(self, batch: Dict[str, Any]):
-        """Encode ``batch`` and predict the added noise.
+        """Encode ``batch`` and predict the velocity field.
 
-        The model internally encodes the inputs, samples diffusion timesteps
-        and generates noisy latents. It returns both the prediction and the
-        target noise so that the caller can compute the loss.
+        This implements the flow matching objective where the model learns the
+        constant velocity transporting samples from a base distribution ``x0``
+        to data samples ``x1``. A random time ``t`` is drawn uniformly from
+        ``[0, 1]`` and the network receives the interpolated state ``xt`` along
+        with ``t``. The target is the velocity field ``x1 - x0``.
         """
 
         latents = self.encode_inputs(batch)  # [B, D, T, H, W]
         if self.normalize_embeddings:
             latents = F.normalize(latents, dim=1)
-        breakpoint()
         context_latents, target_latents = self.split_latents(latents)  # [B, D, n, H, W], [B, D, T-n, H, W]
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents = rearrange(target_latents, "b d t h w -> b (t h w) d")
 
-        noise = torch.randn_like(target_latents)
-        timesteps = torch.randint(
-            0,
-            self.noise_scheduler.config.num_train_timesteps,
-            (target_latents.shape[0],),
-            device=target_latents.device,
-            dtype=torch.long,
-        )
-        noisy_target_latents = self.noise_scheduler.add_noise(
-            target_latents, noise, timesteps
-        )
+        # Sample initial noise x0 and blend with data x1 using a random timestep
+        x0 = torch.randn_like(target_latents)
+        t = torch.rand(target_latents.shape[0], device=target_latents.device)
+        xt = x0 + (t[:, None, None]) * (target_latents - x0)
+        velocity = target_latents - x0
+        timesteps = t * self.num_train_timesteps
 
         if self.flow_transformer is None:
             raise RuntimeError("Flow transformer is not initialised")
-        prediction = self.flow_transformer(
-            context_latents, noisy_target_latents, timesteps
-        )
-        print("noise.shape", noise.shape)
-        print(f"noisy latent shape {noisy_target_latents.shape}")
-        
-        breakpoint()
-        return prediction, noise
+        prediction = self.flow_transformer(context_latents, xt, timesteps)
+        return prediction, velocity
 
     # ------------------------------------------------------------------
     # Introspection helpers

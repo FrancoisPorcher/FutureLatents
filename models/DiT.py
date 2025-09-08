@@ -224,7 +224,7 @@ class DiT(nn.Module):
 
         for block in self.blocks:
             if self.gradient_checkpointing:
-                x = checkpoint(block, x, c)
+                x = checkpoint(block, x, c, use_reentrant=False)
             else:
                 x = block(x, c)
         x = self.final_layer(x, c)
