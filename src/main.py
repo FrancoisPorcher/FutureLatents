@@ -5,7 +5,7 @@ from copy import deepcopy
 # Import the project package relative to this module so that running
 # ``python -m src.main`` works without requiring ``src`` on the
 # ``PYTHONPATH``.
-from models.latent_video_model import LatentVideoModel
+from models import build_model
 from datasets import build_dataset
 from training.trainer import Trainer
 from utils.parser import create_parser
@@ -34,7 +34,7 @@ def main() -> None:
     getattr(val_cfg.DATASETS, dataset_name).PATHS.CSV = dataset_cfg.PATHS.VAL_CSV
     val_dataset = build_dataset(val_cfg)
 
-    model = LatentVideoModel(config)
+    model = build_model(config)
 
     learning_rate = float(config.TRAINER.TRAINING.LEARNING_RATE)
     weight_decay = float(config.TRAINER.TRAINING.WEIGHT_DECAY)

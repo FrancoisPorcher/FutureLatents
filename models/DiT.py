@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import math
+import logging
+from typing import Any, Dict, Iterable, Tuple
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn.functional import scaled_dot_product_attention
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.utils.checkpoint import checkpoint
+from transformers import AutoModel, AutoVideoProcessor
+from einops import rearrange
+
+logger = logging.getLogger(__name__)
 
 
 class RotaryEmbedding(nn.Module):
@@ -276,5 +284,280 @@ class DiT(nn.Module):
         return x
 
 
-__all__ = ["DiT"]
+# -----------------------------------------------------------------------------
+# Deterministic predictor components
+# -----------------------------------------------------------------------------
 
+
+class PredictorBlock(nn.Module):
+    """Transformer block with self- and cross-attention."""
+
+    def __init__(self, dim: int, num_heads: int, mlp_ratio: float = 4.0) -> None:
+        super().__init__()
+        self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
+        self.attn = MultiheadSelfAttention(dim, num_heads)
+        self.norm_cross = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
+        self.cross_attn = MultiheadCrossAttention(dim, num_heads)
+        self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
+        self.mlp = MLP(dim, int(dim * mlp_ratio))
+
+    def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+        x = x + self.attn(self.norm1(x))
+        x = x + self.cross_attn(self.norm_cross(x), context)
+        x = x + self.mlp(self.norm2(x))
+        return x
+
+
+class PredictorFinalLayer(nn.Module):
+    """Final projection layer for the predictor transformer."""
+
+    def __init__(self, hidden_dim: int, out_dim: int) -> None:
+        super().__init__()
+        self.norm = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
+        self.linear = nn.Linear(hidden_dim, out_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.norm(x)
+        return self.linear(x)
+
+
+class PredictorTransformer(nn.Module):
+    """Minimal transformer operating on latent tokens."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        depth: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        gradient_checkpointing: bool = False,
+    ) -> None:
+        super().__init__()
+        self.gradient_checkpointing = gradient_checkpointing
+
+        self.context_mlp = nn.Sequential(
+            nn.LayerNorm(input_dim, elementwise_affine=False, eps=1e-6),
+            nn.Linear(input_dim, hidden_dim),
+        )
+        self.in_norm = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
+        self.in_proj = nn.Linear(input_dim, hidden_dim)
+        self.blocks = nn.ModuleList(
+            [PredictorBlock(hidden_dim, num_heads, mlp_ratio) for _ in range(depth)]
+        )
+        self.final_layer = PredictorFinalLayer(hidden_dim, input_dim)
+
+    def forward(
+        self, context_latents: torch.Tensor, target_latents: torch.Tensor
+    ) -> torch.Tensor:
+        context_tokens = self.context_mlp(context_latents)
+        x = self.in_proj(target_latents)
+        x = self.in_norm(x)
+        for block in self.blocks:
+            if self.gradient_checkpointing:
+                x = checkpoint(block, x, context_tokens, use_reentrant=False)
+            else:
+                x = block(x, context_tokens)
+        x = self.final_layer(x)
+        return x
+
+
+# -----------------------------------------------------------------------------
+# Latent video models
+# -----------------------------------------------------------------------------
+
+
+class LatentVideoModel(nn.Module):
+    """Video generative model that operates in latent space."""
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        super().__init__()
+        self.config = config
+        backbone_cfg = config.BACKBONE
+        hf_repo = getattr(backbone_cfg, "HF_REPO", None)
+        if hf_repo:
+            self.encoder = AutoModel.from_pretrained(hf_repo)
+            self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
+            logger.info(f"Loaded backbone encoder from {hf_repo}")
+        else:
+            self.encoder = None
+            self.preprocessor = None
+            logger.info("No backbone encoder, operating directly on latents")
+
+        fm_cfg = config.MODEL.FLOW_MATCHING
+        dit_cfg = getattr(fm_cfg, "DIT", None) or {}
+        dit_cfg = {k.lower(): v for k, v in dit_cfg.items()}
+        gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
+        dit_cfg["gradient_checkpointing"] = gc
+        self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
+        self.gradient_checkpointing = gc
+
+        self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
+        self.normalize_embeddings = config.TRAINER.TRAINING.NORMALIZE_EMBEDDINGS
+
+        trainable = config.ENCODER_TRAINABLE
+        self.set_encoder_trainable(trainable)
+
+        self.num_train_timesteps = int(fm_cfg.NUM_TRAIN_TIMESTEPS)
+
+    # ------------------------------------------------------------------
+    # Training helpers
+    # ------------------------------------------------------------------
+    def set_encoder_trainable(self, trainable: bool) -> None:
+        if self.encoder is None:
+            logger.info("No encoder to (un)freeze")
+            return
+        for param in self.encoder.parameters():
+            param.requires_grad = trainable
+        logger.info("Encoder is %s", "trainable" if trainable else "frozen")
+
+    def trainable_parameters(self) -> Iterable[nn.Parameter]:  # pragma: no cover
+        return (p for p in self.parameters() if p.requires_grad)
+
+    def trainable_modules(self) -> Iterable[nn.Parameter]:  # pragma: no cover
+        return self.trainable_parameters()
+
+    # ------------------------------------------------------------------
+    # Forward helpers
+    # ------------------------------------------------------------------
+    def encode_inputs(self, inputs: Dict[str, Any]):
+        if "video" in inputs:
+            if self.encoder is None:
+                raise ValueError("`video` provided in inputs but no encoder is initialised")
+            video = self.preprocessor(inputs["video"], return_tensors="pt")[
+                "pixel_values_videos"
+            ]
+            return self.encoder.get_vision_features(
+                video, keep_spatio_temporal_dimension=True
+            )
+        if "embedding" in inputs:
+            if self.encoder is not None:
+                raise ValueError(
+                    "`embedding` provided in inputs but encoder is initialised; remove the encoder to use cached embeddings"
+                )
+            return inputs["embedding"]
+        raise ValueError("`inputs` must contain either 'video' or 'embedding'")
+
+    def split_latents(self, latents: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        n = int(self.num_context_latents)
+        if n < 0 or n > latents.shape[2]:
+            raise ValueError("`num_context_latents` is out of bounds")
+        context = latents[:, :, :n, :, :]
+        target = latents[:, :, n:, :, :]
+        return context, target
+
+    def forward(self, batch: Dict[str, Any]):
+        latents = self.encode_inputs(batch)  # [B, D, T, H, W]
+        if self.normalize_embeddings:
+            latents = F.normalize(latents, dim=1)
+        context_latents, target_latents = self.split_latents(latents)
+        context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
+        target_latents = rearrange(target_latents, "b d t h w -> b (t h w) d")
+
+        x0 = torch.randn_like(target_latents)
+        t = torch.rand(target_latents.shape[0], device=target_latents.device)
+        xt = x0 + (t[:, None, None]) * (target_latents - x0)
+        velocity = target_latents - x0
+        timesteps = t * self.num_train_timesteps
+
+        if self.flow_transformer is None:
+            raise RuntimeError("Flow transformer is not initialised")
+        prediction = self.flow_transformer(context_latents, xt, timesteps)
+        return prediction, velocity
+
+
+class DeterministicLatentVideoModel(nn.Module):
+    """Predict future latent tokens directly with an L1 objective."""
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        super().__init__()
+        self.config = config
+        backbone_cfg = config.BACKBONE
+        hf_repo = getattr(backbone_cfg, "HF_REPO", None)
+        if hf_repo:
+            self.encoder = AutoModel.from_pretrained(hf_repo)
+            self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
+            logger.info(f"Loaded backbone encoder from {hf_repo}")
+        else:
+            self.encoder = None
+            self.preprocessor = None
+            logger.info("No backbone encoder, operating directly on latents")
+
+        pred_cfg = config.MODEL.PREDICTOR
+        dit_cfg = getattr(pred_cfg, "DIT", None) or {}
+        dit_cfg = {k.lower(): v for k, v in dit_cfg.items()}
+        gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
+        dit_cfg["gradient_checkpointing"] = gc
+        self.predictor = PredictorTransformer(**dit_cfg) if dit_cfg else None
+
+        self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
+        self.normalize_embeddings = config.TRAINER.TRAINING.NORMALIZE_EMBEDDINGS
+
+        trainable = config.ENCODER_TRAINABLE
+        self.set_encoder_trainable(trainable)
+
+    # ------------------------------------------------------------------
+    # Training helpers
+    # ------------------------------------------------------------------
+    def set_encoder_trainable(self, trainable: bool) -> None:
+        if self.encoder is None:
+            logger.info("No encoder to (un)freeze")
+            return
+        for param in self.encoder.parameters():
+            param.requires_grad = trainable
+        logger.info("Encoder is %s", "trainable" if trainable else "frozen")
+
+    def trainable_parameters(self) -> Iterable[nn.Parameter]:  # pragma: no cover
+        return (p for p in self.parameters() if p.requires_grad)
+
+    def trainable_modules(self) -> Iterable[nn.Parameter]:  # pragma: no cover
+        return self.trainable_parameters()
+
+    # ------------------------------------------------------------------
+    # Forward helpers
+    # ------------------------------------------------------------------
+    def encode_inputs(self, inputs: Dict[str, Any]):
+        if "video" in inputs:
+            if self.encoder is None:
+                raise ValueError("`video` provided in inputs but no encoder is initialised")
+            video = self.preprocessor(inputs["video"], return_tensors="pt")[
+                "pixel_values_videos"
+            ]
+            return self.encoder.get_vision_features(
+                video, keep_spatio_temporal_dimension=True
+            )
+        if "embedding" in inputs:
+            if self.encoder is not None:
+                raise ValueError(
+                    "`embedding` provided in inputs but encoder is initialised; remove the encoder to use cached embeddings"
+                )
+            return inputs["embedding"]
+        raise ValueError("`inputs` must contain either 'video' or 'embedding'")
+
+    def split_latents(self, latents: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        n = int(self.num_context_latents)
+        if n < 0 or n > latents.shape[2]:
+            raise ValueError("`num_context_latents` is out of bounds")
+        context = latents[:, :, :n, :, :]
+        target = latents[:, :, n:, :, :]
+        return context, target
+
+    def forward(self, batch: Dict[str, Any]):
+        latents = self.encode_inputs(batch)
+        if self.normalize_embeddings:
+            latents = F.normalize(latents, dim=1)
+        context_latents, target_latents = self.split_latents(latents)
+        context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
+        target_latents = rearrange(target_latents, "b d t h w -> b (t h w) d")
+        if self.predictor is None:
+            raise RuntimeError("Predictor transformer is not initialised")
+        prediction = self.predictor(context_latents, target_latents)
+        return prediction, target_latents
+
+
+__all__ = [
+    "DiT",
+    "PredictorTransformer",
+    "LatentVideoModel",
+    "DeterministicLatentVideoModel",
+]
