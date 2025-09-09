@@ -128,11 +128,17 @@ class Trainer:
                 self.scheduler.step()
             self.optimizer.zero_grad()
 
+        loss_value = loss.detach()
+        if self.accelerator.num_processes > 1:
+            loss_value = self.accelerator.gather(loss_value).mean()
         if wandb.run is not None and self.accelerator.is_main_process:
             lr = self.optimizer.param_groups[0]["lr"]
-            wandb.log({"train/loss": loss.item(), "train/lr": lr}, step=self.state.step)
+            wandb.log(
+                {"train/loss": loss_value.item(), "train/lr": lr},
+                step=self.state.step,
+            )
         self.state.step += 1
-        return loss.item()
+        return loss_value.item()
 
     def train_epoch(self, dataloader: Iterable[dict]) -> float:
         """Iterate over ``dataloader`` once and return the mean loss."""
@@ -185,11 +191,15 @@ class Trainer:
         for batch in progress_bar:
             with self.accelerator.autocast():
                 prediction, target = self.model(batch)
+            prediction, target = self.accelerator.gather_for_metrics(
+                (prediction, target)
+            )
             # loss computed in fp32
             loss = self.criterion(prediction.float(), target.float())
-            total_loss += loss.item()
+            loss_value = loss.detach()
+            total_loss += loss_value.item()
             if wandb.run is not None and self.accelerator.is_main_process:
-                wandb.log({"eval/loss": loss.item()}, step=self.state.step)
+                wandb.log({"eval/loss": loss_value.item()}, step=self.state.step)
             self.state.step += 1
             progress_bar.set_postfix(
                 loss=total_loss / max(progress_bar.n, 1), refresh=False
