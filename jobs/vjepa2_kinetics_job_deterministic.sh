@@ -43,6 +43,7 @@ python --version
 nvidia-smi || true  # don't fail job if nvidia-smi is restricted
 
 # Use Slurm’s task count to drive accelerate; let Slurm place tasks
+# Redirect stderr to stdout so evaluation logs go to the .out file
 accelerate launch --num_processes 8 --num_machines 1 -m src.main \
---config_path "$CONFIG_PATH"
+--config_path "$CONFIG_PATH" 2>&1
 
