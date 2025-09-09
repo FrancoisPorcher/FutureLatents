@@ -32,3 +32,6 @@ venv/
 
 # W&B logs
 wandb/
+
+# Job scripts
+jobs/

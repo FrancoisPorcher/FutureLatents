@@ -222,6 +222,10 @@ class Trainer:
             "step": self.state.step,
         }
         torch.save(ckpt, path)
+        if self.logger is not None and (
+            self.accelerator is None or self.accelerator.is_main_process
+        ):
+            self.logger.info(f"Saved checkpoint to {path}")
 
     # ------------------------------------------------------------------
     # High level API
