@@ -86,7 +86,8 @@ class Trainer:
         self.epochs = int(config.TRAINING.EPOCHS)
         self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
         self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
-        self.criterion = get_criterion(str(config.TRAINING.LOSS))
+        self.criterion_name = str(config.TRAINING.LOSS).lower()
+        self.criterion = get_criterion(self.criterion_name)
         self.save_every = int(config.TRAINING.SAVE_EVERY)
         
 
@@ -135,7 +136,7 @@ class Trainer:
         if wandb.run is not None and self.accelerator.is_main_process:
             lr = self.optimizer.param_groups[0]["lr"]
             wandb.log(
-                {"train/loss": loss_value.item(), "train/lr": lr},
+                {f"train/{self.criterion_name}_loss": loss_value.item(), "train/lr": lr},
                 step=self.state.step,
             )
         self.state.step += 1
@@ -157,13 +158,14 @@ class Trainer:
         for batch in progress_bar:
             total_loss += self.train_step(batch)
             progress_bar.set_postfix(
-                loss=total_loss / max(progress_bar.n, 1), refresh=False
+                {f"{self.criterion_name}_loss": total_loss / max(progress_bar.n, 1)},
+                refresh=False,
             )
         mean_loss = total_loss / max(len(dataloader), 1)
         if wandb.run is not None and (
             self.accelerator is None or self.accelerator.is_main_process
         ):
-            wandb.log({"train/avg_loss": mean_loss}, step=self.state.step)
+            wandb.log({f"train/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
         return mean_loss
 
     # ------------------------------------------------------------------
@@ -200,14 +202,21 @@ class Trainer:
             loss_value = loss.detach()
             total_loss += loss_value.item()
             if wandb.run is not None and self.accelerator.is_main_process:
-                wandb.log({"eval/loss": loss_value.item()}, step=self.state.step)
+                wandb.log(
+                    {f"eval/{self.criterion_name}_loss": loss_value.item()},
+                    step=self.state.step,
+                )
             self.state.step += 1
             progress_bar.set_postfix(
-                loss=total_loss / max(progress_bar.n, 1), refresh=False
+                {f"{self.criterion_name}_loss": total_loss / max(progress_bar.n, 1)},
+                refresh=False,
             )
         mean_loss = total_loss / max(len(dataloader), 1)
         if wandb.run is not None and self.accelerator.is_main_process:
-            wandb.log({"eval/avg_loss": mean_loss}, step=self.state.step)
+            wandb.log(
+                {f"eval/avg_{self.criterion_name}_loss": mean_loss},
+                step=self.state.step,
+            )
         return mean_loss
 
     # ------------------------------------------------------------------
@@ -274,7 +283,7 @@ class Trainer:
 
         if self.eval_first and val_loader is not None:
             val_loss = self.val(val_loader)
-            msg = f"epoch 0/{epochs} - val_loss: {val_loss:.4f}"
+            msg = f"epoch 0/{epochs} - val_{self.criterion_name}_loss: {val_loss:.4f}"
             if self.logger is not None and (
                 self.accelerator is None or self.accelerator.is_main_process
             ):
@@ -283,15 +292,20 @@ class Trainer:
         for epoch in range(epochs):
             self.state.epoch = epoch
             train_loss = self.train_epoch(train_loader)
-            msg = f"epoch {epoch + 1}/{epochs} - train_loss: {train_loss:.4f}"
+            msg = (
+                f"epoch {epoch + 1}/{epochs} - train_{self.criterion_name}_loss: "
+                f"{train_loss:.4f}"
+            )
             epoch_log = {
                 "epoch": epoch + 1,
-                "epoch/train_loss": train_loss,
+                f"epoch/train_{self.criterion_name}_loss": train_loss,
             }
             if val_loader is not None and (epoch + 1) % self.eval_every == 0:
                 val_loss = self.val(val_loader)
-                msg += f", val_loss: {val_loss:.4f}"
-                epoch_log["epoch/eval_loss"] = val_loss
+                msg += f", val_{self.criterion_name}_loss: {val_loss:.4f}"
+                epoch_log[
+                    f"epoch/eval_{self.criterion_name}_loss"
+                ] = val_loss
             if self.logger is not None and (
                 self.accelerator is None or self.accelerator.is_main_process
             ):
@@ -314,7 +328,7 @@ class Trainer:
                 self.accelerator.wait_for_everyone()
         if val_loader is not None:
             val_loss = self.val(val_loader)
-            msg = f"final val_loss: {val_loss:.4f}"
+            msg = f"final val_{self.criterion_name}_loss: {val_loss:.4f}"
             if self.logger is not None and (
                 self.accelerator is None or self.accelerator.is_main_process
             ):
@@ -322,7 +336,10 @@ class Trainer:
             if wandb.run is not None and (
                 self.accelerator is None or self.accelerator.is_main_process
             ):
-                wandb.log({"epoch/final_eval_loss": val_loss}, step=self.state.step)
+                wandb.log(
+                    {f"epoch/final_eval_{self.criterion_name}_loss": val_loss},
+                    step=self.state.step,
+                )
 
 class DeterministicTrainer(Trainer):
     """Trainer variant for deterministic models."""
