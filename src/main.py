@@ -53,6 +53,7 @@ def main() -> None:
     experiment_root = project_root / "experiment" / config_name
     overwrite_experiment = experiment_root.exists()
     if overwrite_experiment and accelerator.is_main_process:
+        print("Overwritting experiment", experiment_root)
         shutil.rmtree(experiment_root)
     accelerator.wait_for_everyone()
     checkpoints_dir = experiment_root / "checkpoints"
