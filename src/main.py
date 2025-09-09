@@ -94,11 +94,20 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
 
     num_workers = int(config.TRAINER.TRAINING.NUM_WORKERS)
+    train_batch_size = int(config.TRAINER.TRAINING.BATCH_SIZE_PER_GPU)
+    eval_batch_size = int(config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU)
+
     train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, shuffle=True, num_workers=num_workers
+        train_dataset,
+        shuffle=True,
+        num_workers=num_workers,
+        batch_size=train_batch_size,
     )
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, shuffle=False, num_workers=num_workers
+        val_dataset,
+        shuffle=False,
+        num_workers=num_workers,
+        batch_size=eval_batch_size,
     )
 
     log_file = logs_dir / "train.log"
