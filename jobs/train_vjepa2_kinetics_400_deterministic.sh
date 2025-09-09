@@ -1,12 +1,12 @@
 #!/bin/bash -l
-#SBATCH --job-name=vjepa2_kinetics_400_deterministic
+#SBATCH --job-name=train_vjepa2_kinetics_400_deterministic
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH --time=48:00:00
 #SBATCH --partition=learnfair
-#SBATCH --output=../experiment/%x/slurm/%x_%j.out
-#SBATCH --error=../experiment/%x/slurm/%x_%j.err
+#SBATCH --output=/private/home/francoisporcher/FutureLatents/experiment/%x/slurm/%x_%j.out
+#SBATCH --error=/private/home/francoisporcher/FutureLatents/experiment/%x/slurm/%x_%j.err
 
 # safer bash flags for debugging
 set -euo pipefail
@@ -15,7 +15,7 @@ set -x
 
 ROOT=/private/home/francoisporcher/FutureLatents
 CONFIG_PATH=configs/vjepa2_kinetics_400_deterministic.yaml
-JOB_NAME=vjepa2_kinetics_400_deterministic
+JOB_NAME=train_vjepa2_kinetics_400_deterministic
 EXPERIMENT_DIR="$ROOT/experiment/$JOB_NAME"
 SLURM_LOG_DIR="$EXPERIMENT_DIR/slurm"
 
@@ -42,8 +42,10 @@ echo "Conda environment: ${CONDA_DEFAULT_ENV:-unknown}"
 python --version
 nvidia-smi || true  # don't fail job if nvidia-smi is restricted
 
-# Use Slurm’s task count to drive accelerate; let Slurm place tasks
+# Use Slurm's task count to drive accelerate for multi-node runs
 # Redirect stderr to stdout so evaluation logs go to the .out file
-accelerate launch --num_processes 8 --num_machines 1 -m src.main \
+NUM_NODES="${SLURM_JOB_NUM_NODES:-1}"
+NUM_PROCESSES=$((NUM_NODES * 8))
+accelerate launch --num_processes "$NUM_PROCESSES" --num_machines "$NUM_NODES" -m src.main \
 --config_path "$CONFIG_PATH" 2>&1
 
