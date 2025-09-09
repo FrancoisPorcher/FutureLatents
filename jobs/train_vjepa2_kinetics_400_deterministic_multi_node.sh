@@ -45,7 +45,7 @@ echo "START TIME: $(date)"
 # --- Multi-node parameters for Accelerate ---
 GPUS_PER_NODE=${SLURM_GPUS_ON_NODE:-8}
 NNODES=${SLURM_NNODES}
-NUM_PROCESSES=$(( NNODES * GPUS_PER_NODE ))
+NUM_PROCESSES=$GPUS_PER_NODE
 MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 MASTER_PORT=6000
 
