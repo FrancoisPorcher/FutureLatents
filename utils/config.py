@@ -49,7 +49,9 @@ def load_config(path: Path) -> DictConfig:
     return merged
 
 
-def print_config(config: DictConfig) -> None:
-    """Print a resolved configuration in YAML format."""
+def print_config(config: DictConfig) -> str:
+    """Return and print a resolved configuration in YAML format."""
 
-    print(OmegaConf.to_yaml(config))
+    yaml_str = OmegaConf.to_yaml(config)
+    print(yaml_str)
+    return yaml_str

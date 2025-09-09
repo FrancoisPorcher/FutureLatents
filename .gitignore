@@ -20,6 +20,9 @@ venv/
 /data/
 !/data/README.md
 
+# Experiment outputs
+/experiment/
+
 # IDEs and editors
 .vscode/
 .idea/
