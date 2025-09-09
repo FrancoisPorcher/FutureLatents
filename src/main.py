@@ -31,8 +31,10 @@ def main() -> None:
     experiment_root = project_root / "experiment" / config_name
     checkpoints_dir = experiment_root / "checkpoints"
     logs_dir = experiment_root / "logs"
+    config_dir = experiment_root / "config"
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
+    config_dir.mkdir(parents=True, exist_ok=True)
 
     train_dataset = build_dataset(config, split="train")
     val_dataset = build_dataset(config, split="val")
@@ -92,7 +94,10 @@ def main() -> None:
 
     if accelerator.is_main_process:
         model.count_parameters()
-        print_config(config)
+        resolved_config = print_config(config)
+        logger.info(resolved_config)
+        resolved_config_path = config_dir / "resolved_config.yaml"
+        resolved_config_path.write_text(resolved_config)
         if use_wandb:
             wandb.init(project="FutureLatent", name=config_name)
 
