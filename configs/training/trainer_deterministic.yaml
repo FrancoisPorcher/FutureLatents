@@ -9,7 +9,7 @@ trainer:
     overfit_video_path: null     # Path to the video file for overfitting
     find_unused_parameters: true
     mixed_precision: fp16
-    gradient_checkpointing: true
+    
     max_grad_norm: 1.0
     max_grad_value: null
     epochs: 1
@@ -21,10 +21,10 @@ trainer:
 model:
   type: deterministic
   num_context_latents: 16
-  predictor:
-    dit:
-      input_dim: 1024
-      hidden_dim: 1024
-      depth: 12
-      num_heads: 8
-      mlp_ratio: 4.0
+  dit:
+    input_dim: 1024
+    hidden_dim: 1024
+    depth: 12
+    num_heads: 8
+    mlp_ratio: 4.0
+    gradient_checkpointing: true

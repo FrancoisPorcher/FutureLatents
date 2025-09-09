@@ -33,11 +33,8 @@ class LatentVideoModel(nn.Module):
             self.preprocessor = None
             logger.info("No backbone encoder, operating directly on latents")
 
-        dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
-        gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
-        dit_cfg["gradient_checkpointing"] = gc
+        dit_cfg = config.MODEL.DIT
         self.flow_transformer = DiT(**dit_cfg)
-        self.gradient_checkpointing = gc
 
         self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
         self.normalize_embeddings = config.TRAINER.TRAINING.NORMALIZE_EMBEDDINGS

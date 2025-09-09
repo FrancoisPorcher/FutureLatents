@@ -9,7 +9,6 @@ trainer:
     overfit_video_path: null     # Path to the video file for overfitting
     find_unused_parameters: true
     mixed_precision: fp16
-    gradient_checkpointing: true
     max_grad_norm: 1.0
     max_grad_value: null
     epochs: 1
@@ -28,3 +27,4 @@ model:
     depth: 12
     num_heads: 8
     mlp_ratio: 4.0
+    gradient_checkpointing: true
