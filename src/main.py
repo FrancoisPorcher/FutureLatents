@@ -27,6 +27,14 @@ def main() -> None:
     train_dataset = build_dataset(config, split="train")
     val_dataset = build_dataset(config, split="val")
 
+    max_train_steps = int(config.TRAINER.TRAINING.get("MAX_STEPS", -1))
+    if max_train_steps > 0:
+        train_dataset = torch.utils.data.Subset(train_dataset, range(max_train_steps))
+
+    max_eval_videos = int(config.TRAINER.EVALUATION.get("MAX_VIDEOS", -1))
+    if max_eval_videos > 0:
+        val_dataset = torch.utils.data.Subset(val_dataset, range(max_eval_videos))
+
     model = build_model(config)
 
     learning_rate = float(config.TRAINER.TRAINING.LEARNING_RATE)
@@ -94,7 +102,15 @@ def main() -> None:
         logger=logger,
     )
 
-    trainer.fit(train_dataloader, val_dataloader)
+    checkpoint_dir = config.TRAINER.TRAINING.get("CHECKPOINT_DIR", "checkpoints")
+    save_every = int(config.TRAINER.TRAINING.get("SAVE_EVERY", 1))
+
+    trainer.fit(
+        train_dataloader,
+        val_dataloader,
+        checkpoint_dir=checkpoint_dir,
+        save_every=save_every,
+    )
 
     if accelerator.is_main_process and use_wandb and wandb.run is not None:
         wandb.finish()
