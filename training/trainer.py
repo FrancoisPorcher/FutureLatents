@@ -270,9 +270,9 @@ class Trainer:
             ):
                 wandb.log(epoch_log, step=self.state.step)
 
-        if ckpt_path is not None and (epoch + 1) % save_every == 0:
-            filename = ckpt_path / f"checkpoint_epoch_{epoch + 1}.pt"
-            self.save_checkpoint(filename)
+            if ckpt_path is not None and (epoch + 1) % save_every == 0:
+                filename = ckpt_path / f"checkpoint_epoch_{epoch + 1}.pt"
+                self.save_checkpoint(filename)
 
 
 class DeterministicTrainer(Trainer):
