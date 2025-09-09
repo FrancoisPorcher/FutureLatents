@@ -282,16 +282,18 @@ class DiT(nn.Module):
 
 
 class PredictorBlock(nn.Module):
-    """Transformer block with self- and cross-attention."""
+    """Transformer block with self-attention and an MLP."""
 
     def __init__(self, dim: int, num_heads: int, mlp_ratio: float = 4.0) -> None:
         super().__init__()
         self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.attn = MultiheadSelfAttention(dim, num_heads)
+        self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.mlp = MLP(dim, int(dim * mlp_ratio))
 
-    def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.norm1(x))
+        x = x + self.mlp(self.norm2(x))
         return x
 
 
@@ -332,14 +334,13 @@ class PredictorTransformer(nn.Module):
         )
         self.final_layer = PredictorFinalLayer(hidden_dim, input_dim)
 
-    def forward(
-        self, context_latents: torch.Tensor, target_latents: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, context_latents: torch.Tensor) -> torch.Tensor:
+        x = self.context_mlp(context_latents)
         for block in self.blocks:
             if self.gradient_checkpointing:
-                x = checkpoint(block, x, context_latents, use_reentrant=False)
+                x = checkpoint(block, x, use_reentrant=False)
             else:
-                x = block(x, context_latents)
+                x = block(x)
         x = self.final_layer(x)
         return x
 

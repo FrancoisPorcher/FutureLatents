@@ -145,7 +145,7 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
 
-        prediction = self.predictor(context_latents, target_latents)  # direct next-token prediction
+        prediction = self.predictor(context_latents)  # direct next-token prediction
         return prediction, target_latents
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
