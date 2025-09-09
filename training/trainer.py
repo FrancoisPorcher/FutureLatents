@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Callable
 
 import torch
 import torch.nn.functional as F
@@ -18,6 +18,22 @@ from accelerate import Accelerator
 from accelerate.utils import tqdm
 import logging
 import wandb
+
+
+def get_criterion(name: str) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
+    """Return a loss function given its name.
+
+    Parameters
+    ----------
+    name:
+        Name of the loss. Currently supports ``"mse"`` and ``"l1"``.
+    """
+
+    loss_map = {"mse": F.mse_loss, "l1": F.l1_loss}
+    try:
+        return loss_map[name.lower()]
+    except KeyError as exc:  # pragma: no cover - config error
+        raise ValueError("LOSS must be 'mse' or 'l1'") from exc
 
 
 @dataclass
@@ -70,12 +86,7 @@ class Trainer:
         self.epochs = int(config.TRAINING.EPOCHS)
         self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
         self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
-        loss_name = str(config.TRAINING.LOSS).lower()
-        loss_map = {"mse": F.mse_loss, "l1": F.l1_loss}
-        try:
-            self.criterion = loss_map[loss_name]
-        except KeyError as exc:  # pragma: no cover - config error
-            raise ValueError("LOSS must be 'mse' or 'l1'") from exc
+        self.criterion = get_criterion(str(config.TRAINING.LOSS))
         
 
         if self.max_grad_norm is None and self.max_grad_value is None:
@@ -284,11 +295,9 @@ class DeterministicTrainer(Trainer):
             accelerator=accelerator,
             logger=logger,
         )
-        # Deterministic models use an L1 objective and are evaluated before
-        # the first training epoch.
-        self.criterion = F.l1_loss
+        # Deterministic models are evaluated before the first training epoch.
         self.eval_first = True
 
 
-__all__ = ["Trainer", "TrainState", "DeterministicTrainer"]
+__all__ = ["Trainer", "TrainState", "DeterministicTrainer", "get_criterion"]
 
