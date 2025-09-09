@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=train_vjepa2_kinetics_400_deterministic
+#SBATCH --job-name=vjepa2_kinetics_400_deterministic
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -10,13 +10,13 @@
 
 ROOT=/private/home/francoisporcher/FutureLatents
 CONFIG_PATH=configs/vjepa2_kinetics_400_deterministic.yaml
-JOB_NAME=train_vjepa2_kinetics_400_deterministic
-EXPERIMENT_DIR="$ROOT/experiment/$JOB_NAME"
+CONFIG_NAME=$(basename "$CONFIG_PATH" .yaml)
+EXPERIMENT_DIR="$ROOT/experiment/$CONFIG_NAME"
 SLURM_LOG_DIR="$EXPERIMENT_DIR/slurm"
 
 echo "ROOT: $ROOT"
 echo "CONFIG_PATH: $CONFIG_PATH"
-echo "JOB_NAME: $JOB_NAME"
+echo "CONFIG_NAME: $CONFIG_NAME"
 echo "EXPERIMENT_DIR: $EXPERIMENT_DIR"
 echo "SLURM_LOG_DIR: $SLURM_LOG_DIR"
 

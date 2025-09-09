@@ -58,10 +58,12 @@ def main() -> None:
     checkpoints_dir = experiment_root / "checkpoints"
     logs_dir = experiment_root / "logs"
     config_dir = experiment_root / "config"
+    slurm_dir = experiment_root / "slurm"
     if accelerator.is_main_process:
         checkpoints_dir.mkdir(parents=True, exist_ok=True)
         logs_dir.mkdir(parents=True, exist_ok=True)
         config_dir.mkdir(parents=True, exist_ok=True)
+        slurm_dir.mkdir(parents=True, exist_ok=True)
     accelerator.wait_for_everyone()
 
     train_dataset = build_dataset(config, split="train")
