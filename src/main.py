@@ -24,6 +24,16 @@ def main() -> None:
     config = load_config(config_path)
     config_name = config_path.stem
 
+    # ------------------------------------------------------------------
+    # Experiment directories
+    # ------------------------------------------------------------------
+    project_root = Path(__file__).resolve().parent.parent
+    experiment_root = project_root / "experiment" / config_name
+    checkpoints_dir = experiment_root / "checkpoints"
+    logs_dir = experiment_root / "logs"
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
     train_dataset = build_dataset(config, split="train")
     val_dataset = build_dataset(config, split="val")
 
@@ -70,7 +80,11 @@ def main() -> None:
         ],
     )
 
-    logging.basicConfig(level=logging.INFO)
+    log_file = logs_dir / "train.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
+    )
     logger = logging.getLogger(__name__)
 
     use_wandb = config.WANDB and not args.debug
@@ -102,7 +116,7 @@ def main() -> None:
         logger=logger,
     )
 
-    checkpoint_dir = config.TRAINER.TRAINING.get("CHECKPOINT_DIR", "checkpoints")
+    checkpoint_dir = checkpoints_dir
     save_every = int(config.TRAINER.TRAINING.get("SAVE_EVERY", 1))
 
     trainer.fit(
