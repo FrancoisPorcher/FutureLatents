@@ -44,7 +44,7 @@ settings (including the model configuration):
 inherits:
   - datasets/kinetics_400.yaml
   - backbones/vjepa2.yaml
-  - training/trainer.yaml
+  - training/trainer_flow_matching.yaml
 encoder_trainable: false
 ```
 
@@ -64,7 +64,7 @@ training.
 
 Flow matching follows the diffusive modelling paradigm where latent tokens are
 incrementally noised and denoised.  The `model.flow_matching` section in
-`training/trainer.yaml` provides the number of training timesteps and the
+`training/trainer_flow_matching.yaml` provides the number of training timesteps and the
 configuration for the diffusion transformer (DiT) used to predict the noise at
 each step.  The `LatentVideoModel` reads these values to build its internal DiT
 module.
@@ -88,6 +88,8 @@ model:
       num_heads: 8
       mlp_ratio: 4.0
 ```
+
+A reference configuration is available in `training/trainer_deterministic.yaml`.
 
 This `DeterministicLatentVideoModel` predicts the remaining latents in a single
 forward pass and optimises the reconstruction `loss` specified in the training

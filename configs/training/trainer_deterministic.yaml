@@ -1,0 +1,31 @@
+wandb: True
+trainer:
+  training:
+    learning_rate: 1e-5
+    weight_decay: 0.01
+    num_workers: 8
+    gradient_accumulation_steps: 1
+    overfit_single_video: false  # Set to true to train on a single video
+    overfit_video_path: null     # Path to the video file for overfitting
+    find_unused_parameters: true
+    mixed_precision: fp16
+    gradient_checkpointing: true
+    max_grad_norm: 1.0
+    max_grad_value: null
+    epochs: 1
+    normalize_embeddings: true
+    loss: l1
+  evaluation:
+    eval_every: 1
+    eval_first: false
+model:
+  type: deterministic
+  num_context_latents: 16
+  flow_matching: null
+  predictor:
+    dit:
+      input_dim: 1024
+      hidden_dim: 1024
+      depth: 12
+      num_heads: 8
+      mlp_ratio: 4.0
