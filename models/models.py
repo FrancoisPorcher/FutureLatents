@@ -33,9 +33,7 @@ class LatentVideoModel(nn.Module):
             self.preprocessor = None
             logger.info("No backbone encoder, operating directly on latents")
 
-        fm_cfg = config.MODEL.FLOW_MATCHING
-        dit_cfg = getattr(fm_cfg, "DIT", None) or {}
-        dit_cfg = {k.lower(): v for k, v in dit_cfg.items()}
+        dit_cfg = {k.lower(): v for k, v in (getattr(config.MODEL, "DIT", {}) or {}).items()}
         gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
         dit_cfg["gradient_checkpointing"] = gc
         self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
@@ -47,7 +45,7 @@ class LatentVideoModel(nn.Module):
         trainable = config.ENCODER_TRAINABLE
         self.set_encoder_trainable(trainable)
 
-        self.num_train_timesteps = int(fm_cfg.NUM_TRAIN_TIMESTEPS)
+        self.num_train_timesteps = int(getattr(config.MODEL, "NUM_TRAIN_TIMESTEPS", 1))
 
     # ------------------------------------------------------------------
     # Training helpers
@@ -125,31 +123,13 @@ class DeterministicLatentVideoModel(LatentVideoModel):
     """Predict future latent tokens directly with an L1 objective."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
-        # ``LatentVideoModel`` expects a flow matching configuration.  When
-        # working with deterministic prediction we provide a minimal stub so we
-        # can reuse the parent initialisation logic.
-        fm_cfg = getattr(config.MODEL, "FLOW_MATCHING", None)
-        if fm_cfg is None:
-            config.MODEL.FLOW_MATCHING = {
-                "NUM_TRAIN_TIMESTEPS": 1,
-                "DIT": None,
-            }
-        elif getattr(fm_cfg, "NUM_TRAIN_TIMESTEPS", None) is None:
-            fm_cfg.NUM_TRAIN_TIMESTEPS = 1
-
         super().__init__(config)
 
         pred_cfg = config.MODEL.PREDICTOR
-        dit_cfg = getattr(pred_cfg, "DIT", None) or {}
-        dit_cfg = {k.lower(): v for k, v in dit_cfg.items()}
+        dit_cfg = {k.lower(): v for k, v in (getattr(pred_cfg, "DIT", {}) or {}).items()}
         gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
         dit_cfg["gradient_checkpointing"] = gc
         self.predictor = PredictorTransformer(**dit_cfg) if dit_cfg else None
-
-        # The flow transformer and training timesteps are not used for
-        # deterministic prediction.
-        self.flow_transformer = None
-        self.num_train_timesteps = None
 
     def forward(self, batch: Dict[str, Any]):
         latents = self.encode_inputs(batch)

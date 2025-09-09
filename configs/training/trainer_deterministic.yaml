@@ -21,7 +21,6 @@ trainer:
 model:
   type: deterministic
   num_context_latents: 16
-  flow_matching: null
   predictor:
     dit:
       input_dim: 1024
