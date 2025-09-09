@@ -272,7 +272,10 @@ class Trainer:
         if self.eval_first and val_loader is not None:
             val_loss = self.val(val_loader)
             msg = f"epoch 0/{epochs} - val_loss: {val_loss:.4f}"
-            self.logger.info(msg)
+            if self.logger is not None and (
+                self.accelerator is None or self.accelerator.is_main_process
+            ):
+                self.logger.info(msg)
 
         for epoch in range(epochs):
             self.state.epoch = epoch
@@ -286,7 +289,10 @@ class Trainer:
                 val_loss = self.val(val_loader)
                 msg += f", val_loss: {val_loss:.4f}"
                 epoch_log["epoch/eval_loss"] = val_loss
-            self.logger.info(msg)
+            if self.logger is not None and (
+                self.accelerator is None or self.accelerator.is_main_process
+            ):
+                self.logger.info(msg)
             if wandb.run is not None and (
                 self.accelerator is None or self.accelerator.is_main_process
             ):
