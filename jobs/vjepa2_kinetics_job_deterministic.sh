@@ -1,14 +1,12 @@
 #!/bin/bash
-## Set up Slurm job
-# Use the config name as the job name so %x expands correctly in filenames
 #SBATCH --job-name=vjepa2_kinetics_400_deterministic
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
-#SBATCH --time=24:00:00
-#SBATCH --partition=gpu
+#SBATCH --time=48:00:00
 # Save stdout and stderr in the submission directory before moving them
 # to the experiment folder
+#SBATCH --partition learnfair
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
