@@ -1,6 +1,5 @@
 from pathlib import Path
 import logging
-from copy import deepcopy
 
 # Import the project package relative to this module so that running
 # ``python -m src.main`` works without requiring ``src`` on the
@@ -23,16 +22,8 @@ def main() -> None:
 
     config = load_config(Path(args.config_path))
 
-    dataset_name = next(iter(config.DATASETS))
-    dataset_cfg = getattr(config.DATASETS, dataset_name)
-
-    train_cfg = deepcopy(config)
-    getattr(train_cfg.DATASETS, dataset_name).PATHS.CSV = dataset_cfg.PATHS.TRAIN_CSV
-    train_dataset = build_dataset(train_cfg)
-
-    val_cfg = deepcopy(config)
-    getattr(val_cfg.DATASETS, dataset_name).PATHS.CSV = dataset_cfg.PATHS.VAL_CSV
-    val_dataset = build_dataset(val_cfg)
+    train_dataset = build_dataset(config, split="train")
+    val_dataset = build_dataset(config, split="val")
 
     model = build_model(config)
 
