@@ -32,7 +32,8 @@ module load cuda/11.8
 eval "$(conda shell.bash hook)"
 conda activate future_latents
 python --version
-nvidia-smi || true
+# Display GPU status from every node
+srun --ntasks=$SLURM_NNODES --ntasks-per-node=1 --label nvidia-smi || true
 
 # --- (Recommended) NCCL safety knobs ---
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
