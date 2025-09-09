@@ -1,11 +1,7 @@
 """Model package for FutureLatents."""
 
-from .DiT import (
-    DiT,
-    PredictorTransformer,
-    LatentVideoModel,
-    DeterministicLatentVideoModel,
-)
+from .DiT import DiT, PredictorTransformer
+from .models import LatentVideoModel, DeterministicLatentVideoModel
 
 
 def build_model(config):

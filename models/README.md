@@ -2,12 +2,13 @@
 
 This directory contains the model components used by FutureLatents.
 
-All architectures are implemented in a single file, `DiT.py`, which provides
-the transformer backbone (`DiT`), a deterministic `PredictorTransformer` and
-two wrapper models: `LatentVideoModel` for flow matching and
-`DeterministicLatentVideoModel` for direct latent prediction.  Model behaviour
-is configured through the `model` section of the YAML configuration files, for
-example:
+The transformer backbone and related blocks live in `DiT.py`, while `models.py`
+contains the wrapper models that assemble the backbone for flow-matching and
+deterministic prediction. `DiT.py` provides the diffusion transformer (`DiT`)
+and a deterministic `PredictorTransformer`, and `models.py` defines the
+`LatentVideoModel` for flow matching and the `DeterministicLatentVideoModel`
+for direct latent prediction.  Model behaviour is configured through the
+`model` section of the YAML configuration files, for example:
 
 ```yaml
 model:
