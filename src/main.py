@@ -137,13 +137,10 @@ def main() -> None:
     )
 
     checkpoint_dir = checkpoints_dir
-    save_every = int(config.TRAINER.TRAINING.get("SAVE_EVERY", 1))
-
     trainer.fit(
         train_dataloader,
         val_dataloader,
         checkpoint_dir=checkpoint_dir,
-        save_every=save_every,
     )
 
     if accelerator.is_main_process and use_wandb and wandb.run is not None:

@@ -87,6 +87,7 @@ class Trainer:
         self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
         self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
         self.criterion = get_criterion(str(config.TRAINING.LOSS))
+        self.save_every = int(config.TRAINING.SAVE_EVERY)
         
 
         if self.max_grad_norm is None and self.max_grad_value is None:
@@ -236,7 +237,6 @@ class Trainer:
         val_loader: Optional[Iterable[dict]] = None,
         epochs: Optional[int] = None,
         checkpoint_dir: Optional[str] = None,
-        save_every: int = 1,
     ) -> None:
         """Run the training loop for ``epochs`` epochs.
 
@@ -252,9 +252,7 @@ class Trainer:
         checkpoint_dir:
             Directory to store checkpoints in.  If ``None`` no checkpoints are
             written.
-        save_every:
-            Save a checkpoint every ``save_every`` epochs.
-        
+
         Notes
         -----
         Evaluation frequency is controlled by ``self.eval_every`` set during
@@ -304,7 +302,7 @@ class Trainer:
 
             if (
                 ckpt_path is not None
-                and (epoch + 1) % save_every == 0
+                and (epoch + 1) % self.save_every == 0
                 and (
                     self.accelerator is None or self.accelerator.is_main_process
                 )
