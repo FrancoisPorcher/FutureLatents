@@ -21,11 +21,10 @@ trainer:
 model:
   type: flow_matching
   num_context_latents: 16
-  flow_matching:
-    num_train_timesteps: 1000
-    dit:
-      input_dim: 1024
-      hidden_dim: 1024
-      depth: 12
-      num_heads: 8
-      mlp_ratio: 4.0
+  num_train_timesteps: 1000
+  dit:
+    input_dim: 1024
+    hidden_dim: 1024
+    depth: 12
+    num_heads: 8
+    mlp_ratio: 4.0
