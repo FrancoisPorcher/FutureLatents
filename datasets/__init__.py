@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
 from omegaconf import DictConfig
 
 from .kinetics_400 import Kinetics400
@@ -14,30 +13,36 @@ _DATASETS = {
 }
 
 
-def build_dataset(config: DictConfig):
+def build_dataset(config: DictConfig, split: str = "train"):
     """Build a dataset from a configuration dictionary.
 
-    The configuration must contain a single entry under the ``datasets`` key
-    specifying which dataset to construct. The entry name is used to select the
-    appropriate dataset class.
+    Parameters
+    ----------
+    config:
+        Configuration object that contains a single dataset entry under the
+        ``datasets`` key.
+    split:
+        Which split of the dataset to build (``"train"`` or ``"val"``).
     """
     # Check if we're in single video overfitting mode
     if config.TRAINER.TRAINING.get("overfit_single_video", False):
         from .kinetics_400 import SingleVideoDataset
+
         video_path = config.TRAINER.TRAINING.overfit_video_path
         if not video_path:
-            raise ValueError("overfit_video_path must be specified when overfit_single_video is True")
-        
+            raise ValueError(
+                "overfit_video_path must be specified when overfit_single_video is True"
+            )
+
         datasets_cfg = config.DATASETS
         if len(datasets_cfg) != 1:
             raise ValueError("Config must contain exactly one dataset specification")
-        name = next(iter(datasets_cfg)).lower()
-        dataset_cfg = getattr(config.DATASETS, name.upper())
-        
+        dataset_cfg = next(iter(datasets_cfg.values()))
+
         return SingleVideoDataset(
             video_path=video_path,
             n_frame=dataset_cfg.N_FRAME,
-            stride=dataset_cfg.STRIDE
+            stride=dataset_cfg.STRIDE,
         )
 
     # Regular dataset building
@@ -45,9 +50,20 @@ def build_dataset(config: DictConfig):
     if len(datasets_cfg) != 1:
         raise ValueError("Config must contain exactly one dataset specification")
 
-    name = next(iter(datasets_cfg)).lower()
-    if name not in _DATASETS:
-        raise ValueError(f"Unsupported dataset: {name}")
+    name = next(iter(datasets_cfg))
+    dataset_cfg = datasets_cfg[name]
+    name_lower = name.lower()
 
-    dataset_cls = _DATASETS[name]
+    # Select the appropriate CSV path based on the split
+    if split == "train":
+        dataset_cfg.PATHS.CSV = dataset_cfg.PATHS.TRAIN_CSV
+    elif split == "val":
+        dataset_cfg.PATHS.CSV = dataset_cfg.PATHS.VAL_CSV
+    else:
+        raise ValueError("split must be 'train' or 'val'")
+
+    if name_lower not in _DATASETS:
+        raise ValueError(f"Unsupported dataset: {name_lower}")
+
+    dataset_cls = _DATASETS[name_lower]
     return dataset_cls(config)
