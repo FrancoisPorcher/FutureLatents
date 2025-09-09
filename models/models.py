@@ -23,7 +23,7 @@ class LatentVideoModel(nn.Module):
         super().__init__()
         self.config = config
         backbone_cfg = config.BACKBONE
-        hf_repo = getattr(backbone_cfg, "HF_REPO", None)
+        hf_repo = backbone_cfg.HF_REPO
         if hf_repo:
             self.encoder = AutoModel.from_pretrained(hf_repo)
             self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
@@ -33,7 +33,7 @@ class LatentVideoModel(nn.Module):
             self.preprocessor = None
             logger.info("No backbone encoder, operating directly on latents")
 
-        dit_cfg = {k.lower(): v for k, v in (getattr(config.MODEL, "DIT", {}) or {}).items()}
+        dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
         gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
         dit_cfg["gradient_checkpointing"] = gc
         self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
@@ -45,7 +45,7 @@ class LatentVideoModel(nn.Module):
         trainable = config.ENCODER_TRAINABLE
         self.set_encoder_trainable(trainable)
 
-        self.num_train_timesteps = int(getattr(config.MODEL, "NUM_TRAIN_TIMESTEPS", 1))
+        self.num_train_timesteps = int(config.MODEL.NUM_TRAIN_TIMESTEPS)
 
     # ------------------------------------------------------------------
     # Training helpers
@@ -126,7 +126,7 @@ class DeterministicLatentVideoModel(LatentVideoModel):
         super().__init__(config)
 
         pred_cfg = config.MODEL.PREDICTOR
-        dit_cfg = {k.lower(): v for k, v in (getattr(pred_cfg, "DIT", {}) or {}).items()}
+        dit_cfg = {k.lower(): v for k, v in pred_cfg.DIT.items()}
         gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
         dit_cfg["gradient_checkpointing"] = gc
         self.predictor = PredictorTransformer(**dit_cfg) if dit_cfg else None
