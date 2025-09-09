@@ -25,6 +25,7 @@ def main() -> None:
 
     dataset_name = next(iter(config.DATASETS))
     dataset_cfg = getattr(config.DATASETS, dataset_name)
+    
 
     train_cfg = deepcopy(config)
     getattr(train_cfg.DATASETS, dataset_name).PATHS.CSV = dataset_cfg.PATHS.TRAIN_CSV
@@ -33,6 +34,7 @@ def main() -> None:
     val_cfg = deepcopy(config)
     getattr(val_cfg.DATASETS, dataset_name).PATHS.CSV = dataset_cfg.PATHS.VAL_CSV
     val_dataset = build_dataset(val_cfg)
+    breakpoint()
 
     model = build_model(config)
 
