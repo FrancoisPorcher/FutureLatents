@@ -5,8 +5,8 @@
 #SBATCH --gpus-per-node=8
 #SBATCH --time=48:00:00
 #SBATCH --partition=learnfair
-#SBATCH --output=%x_%j.out
-#SBATCH --error=%x_%j.err
+#SBATCH --output=../experiment/%x/slurm/%x_%j.out
+#SBATCH --error=../experiment/%x/slurm/%x_%j.err
 
 # safer bash flags for debugging
 set -euo pipefail
@@ -27,8 +27,6 @@ echo "SLURM_LOG_DIR: $SLURM_LOG_DIR"
 
 # Make experiment + log dirs
 mkdir -p "$SLURM_LOG_DIR"
-
-# Move the initial SLURM logs into the experiment dir and keep appending there
 
 cd "$ROOT"
 echo "Current directory: $(pwd)"
