@@ -54,7 +54,13 @@ def main() -> None:
     overwrite_experiment = experiment_root.exists()
     if overwrite_experiment and accelerator.is_main_process:
         print("Overwritting experiment", experiment_root)
-        shutil.rmtree(experiment_root)
+        for path in experiment_root.iterdir():
+            if path.name == "slurm":
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
     accelerator.wait_for_everyone()
     checkpoints_dir = experiment_root / "checkpoints"
     logs_dir = experiment_root / "logs"
