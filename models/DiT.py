@@ -288,15 +288,10 @@ class PredictorBlock(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.attn = MultiheadSelfAttention(dim, num_heads)
-        self.norm_cross = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.cross_attn = MultiheadCrossAttention(dim, num_heads)
-        self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.mlp = MLP(dim, int(dim * mlp_ratio))
 
     def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.norm1(x))
-        x = x + self.cross_attn(self.norm_cross(x), context)
-        x = x + self.mlp(self.norm2(x))
         return x
 
 
@@ -332,8 +327,6 @@ class PredictorTransformer(nn.Module):
             nn.LayerNorm(input_dim, elementwise_affine=False, eps=1e-6),
             nn.Linear(input_dim, hidden_dim),
         )
-        self.in_norm = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
-        self.in_proj = nn.Linear(input_dim, hidden_dim)
         self.blocks = nn.ModuleList(
             [PredictorBlock(hidden_dim, num_heads, mlp_ratio) for _ in range(depth)]
         )
@@ -342,14 +335,11 @@ class PredictorTransformer(nn.Module):
     def forward(
         self, context_latents: torch.Tensor, target_latents: torch.Tensor
     ) -> torch.Tensor:
-        context_tokens = self.context_mlp(context_latents)
-        x = self.in_proj(target_latents)
-        x = self.in_norm(x)
         for block in self.blocks:
             if self.gradient_checkpointing:
-                x = checkpoint(block, x, context_tokens, use_reentrant=False)
+                x = checkpoint(block, x, context_latents, use_reentrant=False)
             else:
-                x = block(x, context_tokens)
+                x = block(x, context_latents)
         x = self.final_layer(x)
         return x
 

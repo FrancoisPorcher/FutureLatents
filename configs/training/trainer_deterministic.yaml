@@ -17,7 +17,7 @@ trainer:
     loss: l1
   evaluation:
     eval_every: 1
-    eval_first: false
+    eval_first: true
 model:
   type: deterministic
   num_context_latents: 16

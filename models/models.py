@@ -136,7 +136,8 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         self.predictor = PredictorTransformer(**dit_cfg)
 
     def forward(self, batch: Dict[str, Any]):
-        latents = self.encode_inputs(batch)
+        latents = self.encode_inputs(batch) # [B, D, T, H, W]
+        
         if self.normalize_embeddings:
             latents = F.normalize(latents, dim=1)
         context_latents, target_latents = self.split_latents(latents)

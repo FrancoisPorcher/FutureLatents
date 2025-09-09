@@ -78,7 +78,7 @@ def main() -> None:
         model, optimizer, train_dataloader, val_dataloader, scheduler)
 
     if accelerator.is_main_process and use_wandb:
-        wandb.watch(model, log="gradients", log_freq=100)
+        wandb.watch(model, log="gradients", log_freq=500)
 
     trainer_cls = (
         DeterministicTrainer
