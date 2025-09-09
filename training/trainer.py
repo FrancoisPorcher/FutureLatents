@@ -257,7 +257,8 @@ class Trainer:
         -----
         Evaluation frequency is controlled by ``self.eval_every`` set during
         initialisation.  If ``self.eval_first`` is ``True`` evaluation is run
-        once before any training.
+        once before any training.  Regardless of these settings, a final
+        evaluation is always performed after training concludes.
         """
 
         ckpt_path: Optional[Path] = Path(checkpoint_dir) if checkpoint_dir else None
@@ -311,7 +312,17 @@ class Trainer:
                 self.save_checkpoint(filename)
             if ckpt_path is not None and self.accelerator is not None:
                 self.accelerator.wait_for_everyone()
-
+        if val_loader is not None:
+            val_loss = self.val(val_loader)
+            msg = f"final val_loss: {val_loss:.4f}"
+            if self.logger is not None and (
+                self.accelerator is None or self.accelerator.is_main_process
+            ):
+                self.logger.info(msg)
+            if wandb.run is not None and (
+                self.accelerator is None or self.accelerator.is_main_process
+            ):
+                wandb.log({"epoch/final_eval_loss": val_loss}, step=self.state.step)
 
 class DeterministicTrainer(Trainer):
     """Trainer variant for deterministic models."""
