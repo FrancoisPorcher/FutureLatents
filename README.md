@@ -48,17 +48,8 @@ inherits:
 encoder_trainable: false
 ```
 
-Run `utils.config.load_config` to resolve the hierarchy and
-`utils.config.print_config` to display it.
-
-The `trainer.training` section controls optimisation and currently exposes a
-`loss` field that selects between mean-squared error (`mse`) and L1 loss
-(`l1`).  It also supports a `mixed_precision` field (`"no"`, `"fp16"` or
-`"bf16"`) that is forwarded to the Hugging Face `Accelerator` for mixed
-precision training.  A `gradient_checkpointing` flag enables PyTorch's
-gradient checkpointing for reduced memory usage.  Optional `max_grad_norm` and
-`max_grad_value` settings clip gradients via the accelerator to stabilise
-training.
+The `trainer.training` section controls optimisation parameters such as loss
+function selection, precision, gradient checkpointing, and gradient clipping.
 
 ### Flow matching
 
