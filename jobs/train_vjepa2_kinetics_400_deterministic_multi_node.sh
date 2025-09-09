@@ -36,9 +36,9 @@ nvidia-smi || true
 
 # --- (Recommended) NCCL safety knobs ---
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-# Optional if you ever need to debug comms:
-export NCCL_DEBUG=INFO
-export TORCH_DISTRIBUTED_DEBUG=INFO
+# Optional debug flags disabled for faster runs
+# export NCCL_DEBUG=INFO
+# export TORCH_DISTRIBUTED_DEBUG=INFO
 
 echo "START TIME: $(date)"
 

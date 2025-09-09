@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from typing import Any
 
@@ -9,7 +10,8 @@ def _merge_with_conflict(base: OmegaConf, override: OmegaConf) -> OmegaConf:
     """Merge two ``OmegaConf`` objects reporting conflicting keys."""
     for key in override.keys():
         if key in base and base[key] != override[key]:
-            print(f"Overriding key '{key}': {base[key]} -> {override[key]}")
+            if os.environ.get("RANK", "0") == "0":
+                print(f"Overriding key '{key}': {base[key]} -> {override[key]}")
     return OmegaConf.merge(base, override)
 
 

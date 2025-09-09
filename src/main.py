@@ -102,10 +102,13 @@ def main() -> None:
     )
 
     log_file = logs_dir / "train.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
-    )
+    if accelerator.is_main_process:
+        logging.basicConfig(
+            level=logging.INFO,
+            handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
+        )
+    else:
+        logging.basicConfig(level=logging.ERROR)
     logger = logging.getLogger(__name__)
     if overwrite_experiment and accelerator.is_main_process:
         logger.info(
@@ -114,7 +117,7 @@ def main() -> None:
         )
 
     use_wandb = config.WANDB and not args.debug
-    print("use_wandb", use_wandb)
+    accelerator.print(f"use_wandb {use_wandb}")
 
     if accelerator.is_main_process:
         model.count_parameters()
