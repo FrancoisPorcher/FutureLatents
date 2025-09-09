@@ -36,7 +36,7 @@ class LatentVideoModel(nn.Module):
         dit_cfg = {k.lower(): v for k, v in (getattr(config.MODEL, "DIT", {}) or {}).items()}
         gc = config.TRAINER.TRAINING.GRADIENT_CHECKPOINTING
         dit_cfg["gradient_checkpointing"] = gc
-        self.flow_transformer = DiT(**dit_cfg) if dit_cfg else None
+        self.flow_transformer = DiT(**dit_cfg)
         self.gradient_checkpointing = gc
 
         self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS

@@ -19,6 +19,7 @@ def main() -> None:
     """Entry point for the FutureLatents application."""
     parser = create_parser()
     args = parser.parse_args()
+    breakpoint()
 
     config_path = Path(args.config_path)
     config = load_config(config_path)
