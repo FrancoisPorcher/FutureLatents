@@ -11,13 +11,13 @@ trainer:
     mixed_precision: fp16
     max_grad_norm: 1.0
     max_grad_value: null
-    epochs: 10
+    epochs: 12
     normalize_embeddings: true
     loss: l1
     checkpoint_dir: checkpoints
-    save_every: 1
+    save_every: 4
   evaluation:
-    eval_every: 1
+    eval_every: 4
     eval_first: false
 model:
   type: deterministic
@@ -28,4 +28,4 @@ model:
     depth: 12
     num_heads: 8
     mlp_ratio: 4.0
-    gradient_checkpointing: true
+    gradient_checkpointing: false

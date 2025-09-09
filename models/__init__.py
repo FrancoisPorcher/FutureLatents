@@ -22,7 +22,7 @@ def build_model(config):
 __all__ = [
     "DiT",
     "PredictorTransformer",
-    "LatentVideoModel",
+    "FlowMatchingLatentVideoModel",
     "DeterministicLatentVideoModel",
     "build_model",
 ]

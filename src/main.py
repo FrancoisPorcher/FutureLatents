@@ -137,7 +137,7 @@ def main() -> None:
     )
 
     checkpoint_dir = checkpoints_dir
-    save_every = int(config.TRAINER.TRAINING.get("SAVE_EVERY", 1))
+    save_every = config.TRAINER.TRAINING.SAVE_EVERY
 
     trainer.fit(
         train_dataloader,
