@@ -1,20 +1,21 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=vjepa2_kinetics_400_deterministic
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH --time=48:00:00
-# Save stdout and stderr in the submission directory before moving them
-# to the experiment folder
-#SBATCH --partition learnfair
+#SBATCH --partition=learnfair
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
-set -e
+# safer bash flags for debugging
+set -euo pipefail
+IFS=$'\n\t'
+set -x
 
 ROOT=/private/home/francoisporcher/FutureLatents
 CONFIG_PATH=configs/vjepa2_kinetics_400_deterministic.yaml
-JOB_NAME=$(basename "$0" .sh)
+JOB_NAME=vjepa2_kinetics_400_deterministic
 EXPERIMENT_DIR="$ROOT/experiment/$JOB_NAME"
 SLURM_LOG_DIR="$EXPERIMENT_DIR/slurm"
 
@@ -24,27 +25,25 @@ echo "JOB_NAME: $JOB_NAME"
 echo "EXPERIMENT_DIR: $EXPERIMENT_DIR"
 echo "SLURM_LOG_DIR: $SLURM_LOG_DIR"
 
-# Prepare experiment directory for SLURM logs
+# Make experiment + log dirs
 mkdir -p "$SLURM_LOG_DIR"
 
-move_logs() {
-  OUT_FILE="$SLURM_SUBMIT_DIR/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out"
-  ERR_FILE="$SLURM_SUBMIT_DIR/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.err"
-  [ -f "$OUT_FILE" ] && mv "$OUT_FILE" "$SLURM_LOG_DIR/"
-  [ -f "$ERR_FILE" ] && mv "$ERR_FILE" "$SLURM_LOG_DIR/"
-}
-trap move_logs EXIT
+# Move the initial SLURM logs into the experiment dir and keep appending there
 
 cd "$ROOT"
 echo "Current directory: $(pwd)"
 
-# Silence bind warnings from non-interactive shells
-source ~/.bashrc >/dev/null 2>&1
+source /etc/profile.d/modules.sh
+
+module load anaconda3/2023.03-1
+module load cuda/11.8
+
+eval "$(conda shell.bash hook)"
 conda activate future_latents
-
-echo "Conda environment: $CONDA_DEFAULT_ENV"
+echo "Conda environment: ${CONDA_DEFAULT_ENV:-unknown}"
 python --version
-nvidia-smi
+nvidia-smi || true  # don't fail job if nvidia-smi is restricted
 
-srun accelerate launch --num_processes 8 --num_machines 1 -m src.main \
-  --config_path "$CONFIG_PATH"
+# Use Slurm’s task count to drive accelerate; let Slurm place tasks
+accelerate launch --num_processes 8 --num_machines 1 -m src.main \
+--config_path "$CONFIG_PATH"
