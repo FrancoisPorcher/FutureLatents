@@ -3,10 +3,4 @@ inherits:
   - backbones/vjepa2.yaml
   - training/trainer_deterministic.yaml
 encoder_trainable: false
-trainer:
-  training:
-    max_steps: 1000
-    checkpoint_dir: checkpoints
-    save_every: 1
-  evaluation:
-    max_videos: 100
+

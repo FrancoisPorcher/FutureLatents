@@ -1,10 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=vjepa2_kinetics
+#SBATCH --job-name=vjepa2_kinetics_deterministic
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
-#SBATCH --time=24:00:00
-#SBATCH --partition=gpu
+#SBATCH --time=48:00:00
 
 set -e
 

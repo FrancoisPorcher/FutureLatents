@@ -9,15 +9,16 @@ trainer:
     overfit_video_path: null     # Path to the video file for overfitting
     find_unused_parameters: true
     mixed_precision: fp16
-    
     max_grad_norm: 1.0
     max_grad_value: null
-    epochs: 1
+    epochs: 10
     normalize_embeddings: true
     loss: l1
+    checkpoint_dir: checkpoints
+    save_every: 1
   evaluation:
     eval_every: 1
-    eval_first: true
+    eval_first: false
 model:
   type: deterministic
   num_context_latents: 16
