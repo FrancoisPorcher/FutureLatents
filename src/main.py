@@ -7,7 +7,7 @@ import shutil
 # ``PYTHONPATH``.
 from models import build_model
 from datasets import build_dataset
-from training.trainer import Trainer, DeterministicTrainer
+from training import build_trainer
 from utils.parser import create_parser
 from utils.config import load_config, print_config
 import torch
@@ -122,28 +122,20 @@ def main() -> None:
     if accelerator.is_main_process and use_wandb:
         wandb.watch(model, log="gradients", log_freq=500)
 
-    trainer_cls = (
-        DeterministicTrainer
-        if str(config.MODEL.TYPE).lower() == "deterministic"
-        else Trainer
-    )
-    trainer = trainer_cls(
+    trainer = build_trainer(
+        config=config,
         model=model,
         optimizer=optimizer,
-        config=config.TRAINER,
         scheduler=scheduler,
         accelerator=accelerator,
         logger=logger,
     )
 
     checkpoint_dir = checkpoints_dir
-    save_every = config.TRAINER.TRAINING.SAVE_EVERY
-
     trainer.fit(
         train_dataloader,
         val_dataloader,
         checkpoint_dir=checkpoint_dir,
-        save_every=save_every,
     )
 
     if accelerator.is_main_process and use_wandb and wandb.run is not None:

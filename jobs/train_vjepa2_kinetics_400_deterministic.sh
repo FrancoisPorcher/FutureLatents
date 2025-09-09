@@ -1,17 +1,12 @@
 #!/bin/bash -l
 #SBATCH --job-name=train_vjepa2_kinetics_400_deterministic
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
 #SBATCH --time=48:00:00
 #SBATCH --partition=learnfair
 #SBATCH --output=/private/home/francoisporcher/FutureLatents/experiment/%x/slurm/%x_%j.out
 #SBATCH --error=/private/home/francoisporcher/FutureLatents/experiment/%x/slurm/%x_%j.err
-
-# safer bash flags for debugging
-set -euo pipefail
-IFS=$'\n\t'
-set -x
 
 ROOT=/private/home/francoisporcher/FutureLatents
 CONFIG_PATH=configs/vjepa2_kinetics_400_deterministic.yaml
