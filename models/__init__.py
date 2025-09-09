@@ -1,7 +1,7 @@
 """Model package for FutureLatents."""
 
 from .DiT import DiT, PredictorTransformer
-from .models import LatentVideoModel, DeterministicLatentVideoModel
+from .models import FlowMatchingLatentVideoModel, DeterministicLatentVideoModel
 
 
 def build_model(config):
@@ -9,7 +9,7 @@ def build_model(config):
 
     model_type = str(config.MODEL.TYPE).lower()
     models = {
-        "flow_matching": LatentVideoModel,
+        "flow_matching": FlowMatchingLatentVideoModel,
         "deterministic": DeterministicLatentVideoModel,
     }
     try:
