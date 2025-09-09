@@ -39,8 +39,6 @@ nvidia-smi || true  # don't fail job if nvidia-smi is restricted
 
 # Use Slurm's task count to drive accelerate for multi-node runs
 # Redirect stderr to stdout so evaluation logs go to the .out file
-NUM_NODES="${SLURM_JOB_NUM_NODES:-1}"
-NUM_PROCESSES=$((NUM_NODES * 8))
-accelerate launch --num_processes "$NUM_PROCESSES" --num_machines "$NUM_NODES" -m src.main \
+accelerate launch --num_processes 8 --num_machines 2 -m src.main \
 --config_path "$CONFIG_PATH" 2>&1
 
