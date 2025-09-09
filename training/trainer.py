@@ -147,7 +147,7 @@ class Trainer:
         total_loss = 0.0
         disable = (
             self.accelerator is not None
-            and not self.accelerator.is_local_main_process
+            and not self.accelerator.is_main_process
         )
         progress_bar = tqdm(
             dataloader,
@@ -182,7 +182,7 @@ class Trainer:
         
         disable = (
             self.accelerator is not None
-            and not self.accelerator.is_local_main_process
+            and not self.accelerator.is_main_process
         )
         progress_bar = tqdm(
             dataloader,
