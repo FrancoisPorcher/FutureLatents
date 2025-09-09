@@ -1,5 +1,6 @@
 from pathlib import Path
 import logging
+import shutil
 
 # Import the project package relative to this module so that running
 # ``python -m src.main`` works without requiring ``src`` on the
@@ -29,6 +30,9 @@ def main() -> None:
     # ------------------------------------------------------------------
     project_root = Path(__file__).resolve().parent.parent
     experiment_root = project_root / "experiment" / config_name
+    overwrite_experiment = experiment_root.exists()
+    if overwrite_experiment:
+        shutil.rmtree(experiment_root)
     checkpoints_dir = experiment_root / "checkpoints"
     logs_dir = experiment_root / "logs"
     config_dir = experiment_root / "config"
@@ -88,6 +92,11 @@ def main() -> None:
         handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
     )
     logger = logging.getLogger(__name__)
+    if overwrite_experiment:
+        logger.info(
+            "Existing experiment directory %s removed for a fresh run",
+            experiment_root,
+        )
 
     use_wandb = config.WANDB and not args.debug
     print("use_wandb", use_wandb)
