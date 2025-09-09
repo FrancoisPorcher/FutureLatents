@@ -152,7 +152,12 @@ class Trainer:
             progress_bar.set_postfix(
                 loss=total_loss / max(progress_bar.n, 1), refresh=False
             )
-        return total_loss / max(len(dataloader), 1)
+        mean_loss = total_loss / max(len(dataloader), 1)
+        if wandb.run is not None and (
+            self.accelerator is None or self.accelerator.is_main_process
+        ):
+            wandb.log({"train/avg_loss": mean_loss}, step=self.state.step)
+        return mean_loss
 
     # ------------------------------------------------------------------
     # Validation utilities
@@ -189,7 +194,10 @@ class Trainer:
             progress_bar.set_postfix(
                 loss=total_loss / max(progress_bar.n, 1), refresh=False
             )
-        return total_loss / max(len(dataloader), 1)
+        mean_loss = total_loss / max(len(dataloader), 1)
+        if wandb.run is not None and self.accelerator.is_main_process:
+            wandb.log({"eval/avg_loss": mean_loss}, step=self.state.step)
+        return mean_loss
 
     # ------------------------------------------------------------------
     # Checkpoint utilities
