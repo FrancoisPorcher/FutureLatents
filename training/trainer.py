@@ -259,8 +259,12 @@ class Trainer:
         """
 
         ckpt_path: Optional[Path] = Path(checkpoint_dir) if checkpoint_dir else None
-        if ckpt_path is not None:
+        if ckpt_path is not None and (
+            self.accelerator is None or self.accelerator.is_main_process
+        ):
             ckpt_path.mkdir(parents=True, exist_ok=True)
+        if ckpt_path is not None and self.accelerator is not None:
+            self.accelerator.wait_for_everyone()
 
         if epochs is None:
             epochs = self.epochs
@@ -288,9 +292,17 @@ class Trainer:
             ):
                 wandb.log(epoch_log, step=self.state.step)
 
-            if ckpt_path is not None and (epoch + 1) % save_every == 0:
+            if (
+                ckpt_path is not None
+                and (epoch + 1) % save_every == 0
+                and (
+                    self.accelerator is None or self.accelerator.is_main_process
+                )
+            ):
                 filename = ckpt_path / f"checkpoint_epoch_{epoch + 1}.pt"
                 self.save_checkpoint(filename)
+            if ckpt_path is not None and self.accelerator is not None:
+                self.accelerator.wait_for_everyone()
 
 
 class DeterministicTrainer(Trainer):

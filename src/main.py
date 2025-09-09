@@ -26,19 +26,43 @@ def main() -> None:
     config_name = config_path.stem
 
     # ------------------------------------------------------------------
+    # Accelerator initialisation
+    # ------------------------------------------------------------------
+    gradient_accumulation_steps = int(
+        config.TRAINER.TRAINING.GRADIENT_ACCUMULATION_STEPS
+    )
+    find_unused_parameters = bool(
+        config.TRAINER.TRAINING.FIND_UNUSED_PARAMETERS
+    )
+    mixed_precision = str(config.TRAINER.TRAINING.MIXED_PRECISION)
+
+    accelerator = Accelerator(
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        mixed_precision=mixed_precision,
+        kwargs_handlers=[
+            DistributedDataParallelKwargs(
+                find_unused_parameters=find_unused_parameters
+            )
+        ],
+    )
+
+    # ------------------------------------------------------------------
     # Experiment directories
     # ------------------------------------------------------------------
     project_root = Path(__file__).resolve().parent.parent
     experiment_root = project_root / "experiment" / config_name
     overwrite_experiment = experiment_root.exists()
-    if overwrite_experiment:
+    if overwrite_experiment and accelerator.is_main_process:
         shutil.rmtree(experiment_root)
+    accelerator.wait_for_everyone()
     checkpoints_dir = experiment_root / "checkpoints"
     logs_dir = experiment_root / "logs"
     config_dir = experiment_root / "config"
-    checkpoints_dir.mkdir(parents=True, exist_ok=True)
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    config_dir.mkdir(parents=True, exist_ok=True)
+    if accelerator.is_main_process:
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)
+    accelerator.wait_for_everyone()
 
     train_dataset = build_dataset(config, split="train")
     val_dataset = build_dataset(config, split="val")
@@ -68,31 +92,13 @@ def main() -> None:
         val_dataset, shuffle=False, num_workers=num_workers
     )
 
-    gradient_accumulation_steps = int(
-        config.TRAINER.TRAINING.GRADIENT_ACCUMULATION_STEPS
-    )
-    find_unused_parameters = bool(
-        config.TRAINER.TRAINING.FIND_UNUSED_PARAMETERS
-    )
-    mixed_precision = str(config.TRAINER.TRAINING.MIXED_PRECISION)
-
-    accelerator = Accelerator(
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        mixed_precision=mixed_precision,
-        kwargs_handlers=[
-            DistributedDataParallelKwargs(
-                find_unused_parameters=find_unused_parameters
-            )
-        ],
-    )
-
     log_file = logs_dir / "train.log"
     logging.basicConfig(
         level=logging.INFO,
         handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
     )
     logger = logging.getLogger(__name__)
-    if overwrite_experiment:
+    if overwrite_experiment and accelerator.is_main_process:
         logger.info(
             "Existing experiment directory %s removed for a fresh run",
             experiment_root,
