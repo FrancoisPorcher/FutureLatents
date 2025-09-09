@@ -21,7 +21,9 @@ def main() -> None:
     parser = create_parser()
     args = parser.parse_args()
 
-    config = load_config(Path(args.config_path))
+    config_path = Path(args.config_path)
+    config = load_config(config_path)
+    config_name = config_path.stem
 
     dataset_name = next(iter(config.DATASETS))
     dataset_cfg = getattr(config.DATASETS, dataset_name)
@@ -79,7 +81,7 @@ def main() -> None:
         model.count_parameters()
         print_config(config)
         if use_wandb:
-            wandb.init(project="FutureLatent")
+            wandb.init(project="FutureLatent", name=config_name)
 
     model, optimizer, train_dataloader, val_dataloader, scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, val_dataloader, scheduler)
