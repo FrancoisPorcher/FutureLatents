@@ -106,21 +106,20 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
         # Flow-specific knobs
         self.num_train_timesteps = int(config.MODEL.NUM_TRAIN_TIMESTEPS)
 
-    def forward(self, batch: Dict[str, Any]):
+    def forward(self, batch: Dict[str, Any], return_norms: bool = False):
         latents = self.encode_inputs(batch)  # [B, D, T, H, W]
+        norm_per_token_l2 = None
         if self.normalize_embeddings:
             norm_per_token_l1 = LA.vector_norm(latents, ord=1, dim=1)
             norm_per_token_l2 = LA.vector_norm(latents, ord=2, dim=1)
-            # mean 
             mean_l1_norm = norm_per_token_l1.mean()
             mean_l2_norm = norm_per_token_l2.mean()
-            
+
             print(f"norm_per_token_l1 {norm_per_token_l1}")
             print(f"norm_per_token_l2 {norm_per_token_l2}")
-            
+
             print(f"average l1 norm {mean_l1_norm}")
             print(f"average l2 norm {mean_l2_norm}")
-            breakpoint()
 
             latents = F.normalize(latents, dim=1)
         context_latents, target_latents = self.split_latents(latents)
@@ -137,6 +136,8 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
         timesteps = t * self.num_train_timesteps
 
         prediction = self.flow_transformer(context_latents, xt, timesteps)  # predict velocity
+        if return_norms and norm_per_token_l2 is not None:
+            return prediction, velocity, norm_per_token_l2
         return prediction, velocity
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
@@ -151,17 +152,32 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
         self.predictor = PredictorTransformer(**dit_cfg)
 
-    def forward(self, batch: Dict[str, Any]):
-        latents = self.encode_inputs(batch) # [B, D, T, H, W]
+    def forward(self, batch: Dict[str, Any], return_norms: bool = False):
+        latents = self.encode_inputs(batch)  # [B, D, T, H, W]
 
+        norm_per_token_l2 = None
         if self.normalize_embeddings:
+            norm_per_token_l1 = LA.vector_norm(latents, ord=1, dim=1)
+            norm_per_token_l2 = LA.vector_norm(latents, ord=2, dim=1)
+            mean_l1_norm = norm_per_token_l1.mean()
+            mean_l2_norm = norm_per_token_l2.mean()
+
+            print(f"norm_per_token_l1 {norm_per_token_l1}")
+            print(f"norm_per_token_l2 {norm_per_token_l2}")
+
+            print(f"average l1 norm {mean_l1_norm}")
+            print(f"average l2 norm {mean_l2_norm}")
+
             latents = F.normalize(latents, dim=1)
+
         context_latents, target_latents = self.split_latents(latents)
 
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
 
         prediction = self.predictor(context_latents)  # direct next-token prediction
+        if return_norms and norm_per_token_l2 is not None:
+            return prediction, target_latents, norm_per_token_l2
         return prediction, target_latents
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list

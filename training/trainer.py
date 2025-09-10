@@ -71,6 +71,8 @@ class Trainer:
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
         logger: Optional[logging.Logger] = None,
+        debug: bool = False,
+        dump_dir: Optional[Path] = None,
     ) -> None:
         self.accelerator = accelerator
         self.model = model
@@ -78,6 +80,10 @@ class Trainer:
         self.scheduler = scheduler
         self.state = TrainState()
         self.logger = logger or logging.getLogger(__name__)
+        self.debug = debug
+        self.dump_dir = Path(dump_dir) if dump_dir is not None else None
+        if self.dump_dir is not None:
+            self.dump_dir.mkdir(parents=True, exist_ok=True)
         # Evaluation parameters
         self.eval_every = int(config.EVALUATION.EVAL_EVERY)
         self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
@@ -114,7 +120,12 @@ class Trainer:
 
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
-                prediction, target = self.model(batch)
+                outputs = self.model(batch, return_norms=self.debug)
+                if self.debug:
+                    prediction, target, norms = outputs
+                else:
+                    prediction, target = outputs
+                    norms = None
                 loss = self.criterion(prediction, target)
             self.accelerator.backward(loss)
             if self.max_grad_norm is not None:
@@ -140,7 +151,23 @@ class Trainer:
                 step=self.state.step,
             )
         self.state.step += 1
+        if self.debug and self.dump_dir is not None:
+            self._dump_norms(norms)
         return loss_value.item()
+
+    def _dump_norms(self, norms: torch.Tensor) -> None:
+        """Persist norms tensor and a histogram plot."""
+        if norms is None or self.dump_dir is None:
+            return
+        norms_cpu = norms.detach().cpu()
+        torch.save(norms_cpu, self.dump_dir / f"norms_step_{self.state.step}.pt")
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.hist(norms_cpu.flatten().numpy(), bins=30)
+        plt.title("Token L2 Norms Distribution")
+        plt.savefig(self.dump_dir / f"norms_hist_step_{self.state.step}.png")
+        plt.close()
 
     def train_epoch(self, dataloader: Iterable[dict]) -> float:
         """Iterate over ``dataloader`` once and return the mean loss."""
@@ -161,7 +188,9 @@ class Trainer:
                 {f"{self.criterion_name}_loss": total_loss / max(progress_bar.n, 1)},
                 refresh=False,
             )
-        mean_loss = total_loss / max(len(dataloader), 1)
+            if self.debug and progress_bar.n >= 10:
+                break
+        mean_loss = total_loss / max(progress_bar.n, 1)
         if wandb.run is not None and (
             self.accelerator is None or self.accelerator.is_main_process
         ):
@@ -315,6 +344,8 @@ class Trainer:
             ):
                 wandb.log(epoch_log, step=self.state.step)
 
+            if self.debug and self.state.step >= 10:
+                return
             if (
                 ckpt_path is not None
                 and (epoch + 1) % self.save_every == 0
@@ -352,6 +383,8 @@ class DeterministicTrainer(Trainer):
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
         logger: Optional[logging.Logger] = None,
+        debug: bool = False,
+        dump_dir: Optional[Path] = None,
     ) -> None:
         super().__init__(
             model=model,
@@ -360,6 +393,8 @@ class DeterministicTrainer(Trainer):
             scheduler=scheduler,
             accelerator=accelerator,
             logger=logger,
+            debug=debug,
+            dump_dir=dump_dir,
         )
 
 

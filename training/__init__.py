@@ -26,6 +26,8 @@ def build_trainer(
     scheduler: Optional[object] = None,
     accelerator: Optional[object] = None,
     logger: Optional[logging.Logger] = None,
+    debug: bool = False,
+    dump_dir: Optional[object] = None,
 ):
     """Instantiate a trainer based on ``config.MODEL.TYPE``.
 
@@ -55,6 +57,8 @@ def build_trainer(
         scheduler=scheduler,
         accelerator=accelerator,
         logger=logger,
+        debug=debug,
+        dump_dir=dump_dir,
     )
 
 
