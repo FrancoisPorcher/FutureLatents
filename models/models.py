@@ -15,6 +15,9 @@ from .DiT import DiT, PredictorTransformer
 
 logger = logging.getLogger(__name__)
 
+# to compute norms, temp
+from torch import linalg as LA
+
 
 class LatentVideoBase(nn.Module):
     """Lightweight base: only shared utilities + (optional) backbone. No algorithm-specific parts."""
@@ -106,10 +109,19 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
     def forward(self, batch: Dict[str, Any]):
         latents = self.encode_inputs(batch)  # [B, D, T, H, W]
         if self.normalize_embeddings:
-            flat = latents.flatten(1)
-            l1_norm = flat.abs().sum(dim=1)
-            l2_norm = flat.norm(p=2, dim=1)
-            print(f"VJEPA-2 embedding norms - L1: {l1_norm.tolist()}, L2: {l2_norm.tolist()}")
+            norm_per_token_l1 = LA.vector_norm(latents, ord=1, dim=1)
+            norm_per_token_l2 = LA.vector_norm(latents, ord=2, dim=1)
+            # mean 
+            mean_l1_norm = norm_per_token_l1.mean()
+            mean_l2_norm = norm_per_token_l2.mean()
+            
+            print(f"norm_per_token_l1 {norm_per_token_l1}")
+            print(f"norm_per_token_l2 {norm_per_token_l2}")
+            
+            print(f"average l1 norm {mean_l1_norm}")
+            print(f"average l2 norm {mean_l2_norm}")
+            breakpoint()
+
             latents = F.normalize(latents, dim=1)
         context_latents, target_latents = self.split_latents(latents)
 
@@ -143,10 +155,10 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         latents = self.encode_inputs(batch) # [B, D, T, H, W]
 
         if self.normalize_embeddings:
-            flat = latents.flatten(1)
             l1_norm = flat.abs().sum(dim=1)
             l2_norm = flat.norm(p=2, dim=1)
             print(f"VJEPA-2 embedding norms - L1: {l1_norm.tolist()}, L2: {l2_norm.tolist()}")
+            breakpoint()
             latents = F.normalize(latents, dim=1)
         context_latents, target_latents = self.split_latents(latents)
 
