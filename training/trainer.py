@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Callable
+from typing import Iterable, Optional, Callable, Dict
 
 import torch
 import torch.nn.functional as F
@@ -155,19 +155,33 @@ class Trainer:
             self._dump_norms(norms)
         return loss_value.item()
 
-    def _dump_norms(self, norms: torch.Tensor) -> None:
-        """Persist norms tensor and a histogram plot."""
+    def _dump_norms(self, norms: Optional[Dict[str, torch.Tensor]]) -> None:
+        """Persist L1/L2 norm tensors and histogram plots with statistics."""
         if norms is None or self.dump_dir is None:
             return
-        norms_cpu = norms.detach().cpu()
-        torch.save(norms_cpu, self.dump_dir / f"norms_step_{self.state.step}.pt")
         import matplotlib.pyplot as plt
+        import numpy as np
 
-        plt.figure()
-        plt.hist(norms_cpu.flatten().numpy(), bins=30)
-        plt.title("Token L2 Norms Distribution")
-        plt.savefig(self.dump_dir / f"norms_hist_step_{self.state.step}.png")
-        plt.close()
+        for name, tensor in norms.items():
+            tensor_cpu = tensor.detach().cpu()
+            torch.save(tensor_cpu, self.dump_dir / f"{name}_norms_step_{self.state.step}.pt")
+            data = tensor_cpu.flatten().numpy()
+            plt.figure()
+            plt.hist(data, bins=30)
+            mean = float(np.mean(data))
+            median = float(np.median(data))
+            q1, q3 = np.quantile(data, [0.25, 0.75])
+            for val, label, style in [
+                (mean, "mean", "--"),
+                (median, "median", "-"),
+                (q1, "25%", ":"),
+                (q3, "75%", "-."),
+            ]:
+                plt.axvline(val, color="r", linestyle=style, label=label)
+            plt.title(f"Token {name.upper()} Norms Distribution")
+            plt.legend()
+            plt.savefig(self.dump_dir / f"{name}_hist_step_{self.state.step}.png")
+            plt.close()
 
     def train_epoch(self, dataloader: Iterable[dict]) -> float:
         """Iterate over ``dataloader`` once and return the mean loss."""
