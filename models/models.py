@@ -106,6 +106,10 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
     def forward(self, batch: Dict[str, Any]):
         latents = self.encode_inputs(batch)  # [B, D, T, H, W]
         if self.normalize_embeddings:
+            flat = latents.flatten(1)
+            l1_norm = flat.abs().sum(dim=1)
+            l2_norm = flat.norm(p=2, dim=1)
+            print(f"VJEPA-2 embedding norms - L1: {l1_norm.tolist()}, L2: {l2_norm.tolist()}")
             latents = F.normalize(latents, dim=1)
         context_latents, target_latents = self.split_latents(latents)
 
@@ -137,8 +141,12 @@ class DeterministicLatentVideoModel(LatentVideoBase):
 
     def forward(self, batch: Dict[str, Any]):
         latents = self.encode_inputs(batch) # [B, D, T, H, W]
-        
+
         if self.normalize_embeddings:
+            flat = latents.flatten(1)
+            l1_norm = flat.abs().sum(dim=1)
+            l2_norm = flat.norm(p=2, dim=1)
+            print(f"VJEPA-2 embedding norms - L1: {l1_norm.tolist()}, L2: {l2_norm.tolist()}")
             latents = F.normalize(latents, dim=1)
         context_latents, target_latents = self.split_latents(latents)
 
