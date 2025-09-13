@@ -23,19 +23,13 @@ import wandb
 
 
 def get_criterion(name: str) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
-    """Return a loss function given its name.
-
-    Parameters
-    ----------
-    name:
-        Name of the loss. Currently supports ``"mse"`` and ``"l1"``.
-    """
+    """Return a loss function for ``name``."""
 
     loss_map = {"mse": F.mse_loss, "l1": F.l1_loss}
-    try:
-        return loss_map[name.lower()]
-    except KeyError as exc:  # pragma: no cover - config error
-        raise ValueError("LOSS must be 'mse' or 'l1'") from exc
+    criterion = loss_map.get(name.lower())
+    if criterion is None:  # pragma: no cover - config error
+        raise ValueError("LOSS must be 'mse' or 'l1'")
+    return criterion
 
 
 @dataclass
