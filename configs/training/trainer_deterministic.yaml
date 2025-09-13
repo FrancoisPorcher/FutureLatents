@@ -19,7 +19,7 @@ trainer:
     checkpoint_dir: checkpoints
     save_every: 4
   evaluation:
-    eval_every: 4
+    eval_every: 1
     eval_first: false
     batch_size_per_gpu: 1
 model:

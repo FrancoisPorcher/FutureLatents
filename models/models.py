@@ -250,8 +250,6 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         latents, norms = self.norm_embeddings(latents)
 
         context_latents, target_latents = self.split_latents(latents)
-        
-        breakpoint()
 
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
