@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Callable, Dict, Any
 import contextlib
+import time
 
 import torch
 import torch.nn.functional as F
@@ -49,6 +50,29 @@ class TrainState:
     # Timing
     wall_time_start: float = 0.0        # set at trainer init
     wall_time_total: float = 0.0        # cumulative seconds
+
+    # ------------------------------------------------------------------
+    # Mutators
+    # ------------------------------------------------------------------
+    def increment_epoch(self) -> None:
+        """Advance the epoch counter by one."""
+        self.epoch += 1
+
+    def increment_step(self) -> None:
+        """Advance the optimisation step counter by one."""
+        self.step += 1
+
+    def increment_micro_step(self) -> None:
+        """Advance the raw micro step counter by one."""
+        self.micro_step += 1
+
+    def start_timer(self) -> None:
+        """Record the wall time start."""
+        self.wall_time_start = time.time()
+
+    def update_wall_time(self) -> None:
+        """Update the cumulative wall time."""
+        self.wall_time_total = time.time() - self.wall_time_start
 
 
 
@@ -90,6 +114,7 @@ class Trainer:
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.state = TrainState()
+        self.state.start_timer()
         self.logger = logger or logging.getLogger(__name__)
         self.debug = debug
         self.dump_dir = Path(dump_dir) if dump_dir is not None else None
@@ -131,7 +156,7 @@ class Trainer:
             raise NotImplementedError(
                 "Trainer.train_step() requires an accelerator."
             )
-
+        self.state.increment_micro_step()
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 outputs = self.model(batch, return_norms=self.debug)
@@ -168,7 +193,8 @@ class Trainer:
                     {f"train/{self.criterion_name}_loss": loss_value.item(), "train/lr": lr},
                     step=self.state.step,
                 )
-            self.state.step += 1
+            self.state.increment_step()
+        self.state.update_wall_time()
         return loss_value.item()
 
 
@@ -230,8 +256,9 @@ class Trainer:
     def fit(self):
         if self.eval_first:
             self.run_evaluation()
-        for epoch in range(self.epochs):
+        for _ in range(self.state.epoch, self.epochs):
             self.train_epoch()
+            self.state.increment_epoch()
             self.run_evaluation()
             self.save_checkpoint()
         self.run_evaluation()
