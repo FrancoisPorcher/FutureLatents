@@ -256,8 +256,26 @@ class Trainer:
     # Validation utilities
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def val(self, dataloader: Iterable[dict]) -> float:
-        """Evaluate the model on ``dataloader`` and return the mean loss."""
+    def val(
+        self,
+        dataloader: Iterable[dict],
+        epoch: Optional[int] = None,
+        epochs: Optional[int] = None,
+        log: bool = False,
+    ) -> float:
+        """Evaluate the model on ``dataloader`` and return the mean loss.
+
+        Parameters
+        ----------
+        dataloader:
+            Iterable yielding batches for evaluation.
+        epoch, epochs:
+            When ``log`` is ``True``, these specify the current and total
+            epochs used in the log message.
+        log:
+            If ``True`` log the aggregated validation loss using
+            ``self.logger``.
+        """
 
         self.model.eval()
         total_loss = 0.0
@@ -301,6 +319,17 @@ class Trainer:
                 {f"eval/avg_{self.criterion_name}_loss": mean_loss},
                 step=self.state.step,
             )
+        if log and self.logger is not None and (
+            self.accelerator is None or self.accelerator.is_main_process
+        ):
+            if epoch is not None and epochs is not None:
+                msg = (
+                    f"epoch {epoch}/{epochs} - val_{self.criterion_name}_loss: "
+                    f"{mean_loss:.4f}"
+                )
+            else:
+                msg = f"val_{self.criterion_name}_loss: {mean_loss:.4f}"
+            self.logger.info(msg)
         return mean_loss
 
     # ------------------------------------------------------------------
@@ -376,12 +405,7 @@ class Trainer:
             epochs = self.epochs
 
         if self.eval_first and val_loader is not None:
-            val_loss = self.val(val_loader)
-            msg = f"epoch 0/{epochs} - val_{self.criterion_name}_loss: {val_loss:.4f}"
-            if self.logger is not None and (
-                self.accelerator is None or self.accelerator.is_main_process
-            ):
-                self.logger.info(msg)
+            self.val(val_loader, epoch=0, epochs=epochs, log=True)
 
         for epoch in range(epochs):
             self.state.epoch = epoch
