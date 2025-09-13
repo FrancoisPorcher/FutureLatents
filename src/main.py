@@ -167,5 +167,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     # run with "accelerate launch --num_processes 2 --num_machines 1 -m src.main \
-    #          --config_path configs/vjepa2_kinetics_400.yaml"
+    #          --config_path configs/references/vjepa2_kinetics_400.yaml"
     main()

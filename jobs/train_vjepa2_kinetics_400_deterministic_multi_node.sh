@@ -12,7 +12,7 @@ set -e
 
 # --- Your paths/config ---
 ROOT=/private/home/francoisporcher/FutureLatents
-CONFIG_PATH=configs/vjepa2_kinetics_400_deterministic.yaml
+CONFIG_PATH=configs/references/vjepa2_kinetics_400_deterministic.yaml
 CONFIG_NAME=$(basename "$CONFIG_PATH" .yaml)
 EXPERIMENT_DIR="$ROOT/experiment/$CONFIG_NAME"
 SLURM_LOG_DIR="$EXPERIMENT_DIR/slurm"

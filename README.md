@@ -37,14 +37,14 @@ notebooks/   Exploratory notebooks (empty placeholder)
 ## Configuration
 
 Configurations can be composed using the `inherits` key. For example
-`configs/vjepa2_kinetics_400.yaml` combines dataset, backbone, and training
+`configs/references/vjepa2_kinetics_400.yaml` combines dataset, backbone, and training
 settings (including the model configuration):
 
 ```yaml
 inherits:
-  - datasets/kinetics_400.yaml
-  - backbones/vjepa2.yaml
-  - training/trainer_flow_matching.yaml
+  - ../datasets/kinetics_400.yaml
+  - ../backbones/vjepa2.yaml
+  - ../training/trainer_flow_matching.yaml
 encoder_trainable: false
 ```
 
@@ -91,9 +91,9 @@ configuration.
 Print the resolved configuration, instantiate the dataset and model and set up the optimiser:
 
 ```bash
-python -m src.main --config_path configs/vjepa2_kinetics_400.yaml
+python -m src.main --config_path configs/references/vjepa2_kinetics_400.yaml
 # or the deterministic variant
-python -m src.main --config_path configs/vjepa2_kinetics_400_deterministic.yaml
+python -m src.main --config_path configs/references/vjepa2_kinetics_400_deterministic.yaml
 ```
 
 A minimal training example that freezes the encoder and builds an `AdamW` optimiser over trainable
@@ -111,7 +111,7 @@ Both commands expect that the Kinetics‑400 annotation CSV path in
 If you have already encoded your videos, the repository can train directly on cached features using the `Kinetics400Cached` dataset. The `configs/datasets/kinetics_400_cached.yaml` file expects a metadata CSV where each row contains a path (in the `out_path` column by default) to a saved embedding tensor. Running with
 
 ```bash
-python -m src.main --config_path configs/vjepa2_kinetics_400_cached.yaml
+python -m src.main --config_path configs/references/vjepa2_kinetics_400_cached.yaml
 ```
 
 will load those embeddings with `torch.load` and bypass raw video decoding.

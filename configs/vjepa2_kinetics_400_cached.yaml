@@ -1,5 +1,0 @@
-inherits:
-  - datasets/kinetics_400_cached.yaml
-  - training/trainer_flow_matching.yaml
-encoder_trainable: false
-backbone: null
