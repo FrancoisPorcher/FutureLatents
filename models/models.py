@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import AutoModel, AutoVideoProcessor
 from einops import rearrange
+
+from .backbone import build_backbone
 
 from .DiT import DiT, PredictorTransformer
 
@@ -17,22 +18,6 @@ logger = logging.getLogger(__name__)
 
 # to compute norms, temp
 from torch import linalg as LA
-
-
-def build_backbone(backbone_cfg: Any) -> Tuple[Any, Any]:
-    """Construct the optional backbone encoder and preprocessor.
-
-    Returns a tuple ``(encoder, preprocessor)``. When no backbone is
-    configured (e.g., missing or empty ``HF_REPO``), both are ``None``.
-    """
-    if backbone_cfg.backbone_type == "vjepa2":
-        hf_repo = backbone_cfg.HF_REPO
-        encoder = AutoModel.from_pretrained(hf_repo)
-        # AutoVideoProcessor also covers many video/image processors on HF
-        preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
-        return encoder, preprocessor
-    else:
-        return None, None
 
 
 class LatentVideoBase(nn.Module):
@@ -43,15 +28,17 @@ class LatentVideoBase(nn.Module):
         self.config = config
 
         # --- Optional backbone ---
-        backbone_cfg = getattr(config, "BACKBONE", None)
+        backbone_cfg = config.get("BACKBONE")
         # Read family/type directly from config (already defined there)
-        self.backbone_type = str(getattr(backbone_cfg, "BACKBONE_TYPE", "unknown") or "unknown").lower()
+        self.backbone_type = (
+            str(backbone_cfg.get("BACKBONE_TYPE", "unknown") if backbone_cfg else "unknown").lower()
+        )
         self.backbone_name = self.backbone_type
         # Assemble encoder and preprocessor via helper
         self.encoder, self.preprocessor = build_backbone(backbone_cfg)
         if self.encoder is not None:
             logger.info(
-                f"Loaded backbone encoder from {getattr(backbone_cfg, 'HF_REPO', None)} (family: {self.backbone_name})"
+                f"Loaded backbone encoder from {backbone_cfg.get('HF_REPO', None)} (family: {self.backbone_name})"
             )
         else:
             logger.info("No backbone encoder, operating directly on latents")
