@@ -169,67 +169,9 @@ class Trainer:
                     step=self.state.step,
                 )
             self.state.step += 1
-        if self.debug and self.dump_dir is not None:
-            self._dump_norms(norms)
         return loss_value.item()
 
-    def _dump_norms(self, norms: Optional[Dict[str, torch.Tensor]]) -> None:
-        """Persist L1/L2 norm tensors and histogram plots with statistics."""
-        if norms is None or self.dump_dir is None:
-            return
-        import matplotlib.pyplot as plt
-        import numpy as np
 
-        for name, tensor in norms.items():
-            tensor_cpu = tensor.detach().cpu()
-            torch.save(tensor_cpu, self.dump_dir / f"{name}_norms_step_{self.state.step}.pt")
-            data = tensor_cpu.flatten().numpy()
-            plt.figure()
-            plt.hist(data, bins=30)
-            mean = float(np.mean(data))
-            median = float(np.median(data))
-            q1, q3 = np.quantile(data, [0.25, 0.75])
-            for val, label, style in [
-                (mean, "mean", "--"),
-                (median, "median", "-"),
-                (q1, "25%", ":"),
-                (q3, "75%", "-."),
-            ]:
-                plt.axvline(val, color="r", linestyle=style, label=label)
-            plt.title(f"Token {name.upper()} Norms Distribution")
-            plt.legend()
-            plt.savefig(self.dump_dir / f"{name}_hist_step_{self.state.step}.png")
-            plt.close()
-
-
-    def _log_epoch(
-        self,
-        epoch: int,
-        epochs: int,
-        train_loss: float,
-        val_loss: Optional[float] = None,
-    ) -> None:
-        """Log epoch-level metrics to the configured logger and ``wandb``."""
-
-        msg = (
-            f"epoch {epoch + 1}/{epochs} - train_{self.criterion_name}_loss: "
-            f"{train_loss:.4f}"
-        )
-        epoch_log: Dict[str, Any] = {
-            "epoch": epoch + 1,
-            f"epoch/train_{self.criterion_name}_loss": train_loss,
-        }
-        if val_loss is not None:
-            msg += f", val_{self.criterion_name}_loss: {val_loss:.4f}"
-            epoch_log[f"epoch/eval_{self.criterion_name}_loss"] = val_loss
-        if self.logger is not None and (
-            self.accelerator is None or self.accelerator.is_main_process
-        ):
-            self.logger.info(msg)
-        if wandb.run is not None and (
-            self.accelerator is None or self.accelerator.is_main_process
-        ):
-            wandb.log(epoch_log, step=self.state.step)
 
     def train_epoch(
         self,
