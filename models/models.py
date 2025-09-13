@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Tuple
 
 import torch
 import torch.nn as nn
@@ -30,7 +30,7 @@ class LatentVideoBase(nn.Module):
         # --- Optional backbone ---
         backbone_cfg = config.BACKBONE
         # Read family/type directly from config (already defined there)
-        self.backbone_name = (
+        self.backbone_type = (
             backbone_cfg.BACKBONE_TYPE.lower() if backbone_cfg else None
         )
         # Assemble encoder and preprocessor via helper
@@ -38,7 +38,9 @@ class LatentVideoBase(nn.Module):
 
         # --- Shared knobs ---
         self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
-        self.normalize_embeddings = config.TRAINER.TRAINING.NORMALIZE_EMBEDDINGS
+        self.embedding_norm = getattr(
+            config.TRAINER.TRAINING, "EMBEDDING_NORM", "none"
+        ).lower()
 
         # --- Encoder freeze policy ---
         self.set_encoder_trainable(config.ENCODER_TRAINABLE)
@@ -96,7 +98,7 @@ class LatentVideoBase(nn.Module):
         Encode raw video or return cached embeddings based on inputs.
 
         - When ``inputs`` contains ``"video"``, route to the appropriate
-          backbone forward according to ``self.backbone_name``.
+          backbone forward according to ``self.backbone_type``.
         - When ``inputs`` contains ``"embedding"``, return it directly (and
           require that no encoder is initialised).
         """
@@ -112,12 +114,12 @@ class LatentVideoBase(nn.Module):
         if "video" in inputs:
             if self.encoder is None:
                 raise ValueError("`video` provided but no encoder is initialised")
-            if self.backbone_name == "vjepa2":
+            if self.backbone_type == "vjepa2":
                 return self._forward_video_vjepa2(inputs)
-            if self.backbone_name == "dinov3":
+            if self.backbone_type == "dinov3":
                 return self._forward_video_dinov3(inputs)
             raise ValueError(
-                f"Unknown or unsupported backbone '{self.backbone_name}'. Expected 'vjepa2' or 'dinov3'."
+                f"Unknown or unsupported backbone '{self.backbone_type}'. Expected 'vjepa2' or 'dinov3'."
             )
 
         raise ValueError("`inputs` must contain either 'video' or 'embedding'")
@@ -129,6 +131,40 @@ class LatentVideoBase(nn.Module):
         context = latents[:, :, :n, :, :]
         target  = latents[:, :, n:, :, :]
         return context, target
+
+    # ------------------------------
+    # Embedding helpers
+    # ------------------------------
+    def norm_embeddings(
+        self, latents: torch.Tensor
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """Apply optional normalization to encoder embeddings.
+
+        Returns the normalized latents and a dict with L1/L2 norms of the
+        original latents for monitoring purposes.
+        """
+
+        norms = {
+            "l1": LA.vector_norm(latents, ord=1, dim=1),
+            "l2": LA.vector_norm(latents, ord=2, dim=1),
+        }
+
+        if self.embedding_norm == "none":
+            return latents, norms
+        if self.embedding_norm == "l1":
+            latents = F.normalize(latents, p=1, dim=1)
+            return latents, norms
+        if self.embedding_norm == "l2":
+            latents = F.normalize(latents, p=2, dim=1)
+            return latents, norms
+        if self.embedding_norm == "layer":
+            mean = latents.mean(dim=1, keepdim=True)
+            std = latents.std(dim=1, keepdim=True, unbiased=False)
+            latents = (latents - mean) / (std + 1e-5)
+            return latents, norms
+        raise ValueError(
+            f"Unknown embedding norm '{self.embedding_norm}'. Expected one of ['none','l1','l2','layer']"
+        )
 
 
 class FlowMatchingLatentVideoModel(LatentVideoBase):
@@ -144,12 +180,7 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
 
     def forward(self, batch: Dict[str, Any], return_norms: bool = False):
         latents = self.encode_video_with_backbone(batch)  # [B, D, T, H, W]
-        norms = None
-        if self.normalize_embeddings:
-            norm_per_token_l1 = LA.vector_norm(latents, ord=1, dim=1)
-            norm_per_token_l2 = LA.vector_norm(latents, ord=2, dim=1)
-            norms = {"l1": norm_per_token_l1, "l2": norm_per_token_l2}
-            latents = F.normalize(latents, dim=1)
+        latents, norms = self.norm_embeddings(latents)
         context_latents, target_latents = self.split_latents(latents)
 
         # Flatten tokens: [B, (T*H*W), D]
@@ -164,7 +195,7 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
         timesteps = t * self.num_train_timesteps
 
         prediction = self.flow_transformer(context_latents, xt, timesteps)  # predict velocity
-        if return_norms and norms is not None:
+        if return_norms:
             return prediction, velocity, norms
         return prediction, velocity
 
@@ -183,12 +214,7 @@ class DeterministicLatentVideoModel(LatentVideoBase):
     def forward(self, batch: Dict[str, Any], return_norms: bool = False):
         latents = self.encode_video_with_backbone(batch)  # [B, D, T, H, W]
 
-        norms = None
-        if self.normalize_embeddings:
-            norm_per_token_l1 = LA.vector_norm(latents, ord=1, dim=1)
-            norm_per_token_l2 = LA.vector_norm(latents, ord=2, dim=1)
-            norms = {"l1": norm_per_token_l1, "l2": norm_per_token_l2}
-            latents = F.normalize(latents, dim=1)
+        latents, norms = self.norm_embeddings(latents)
 
         context_latents, target_latents = self.split_latents(latents)
 
@@ -196,7 +222,7 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
 
         prediction = self.predictor(context_latents)  # direct next-token prediction
-        if return_norms and norms is not None:
+        if return_norms:
             return prediction, target_latents, norms
         return prediction, target_latents
 
