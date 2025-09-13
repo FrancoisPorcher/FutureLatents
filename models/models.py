@@ -84,13 +84,8 @@ class LatentVideoBase(nn.Module):
             raise ValueError("`video` provided but no encoder is initialised")
         processed = self.preprocessor(inputs["video"], return_tensors="pt")
         video = processed["pixel_values_videos"]  # type: ignore[index]
-        # Move to model device
-        device = next(self.parameters()).device
-        video = video.to(device)
         # Keep (T,H,W) spatial-temporal structure in the output if supported
-        return self.encoder.get_vision_features(
-            video, keep_spatio_temporal_dimension=True
-        )
+        return self.encoder.get_vision_features(video)
 
     def _forward_video_dinov3(self, inputs: Dict[str, Any]) -> torch.Tensor:  # pragma: no cover - placeholder until DINOV3 is enabled
         """Placeholder DINOv3 video encoding.
