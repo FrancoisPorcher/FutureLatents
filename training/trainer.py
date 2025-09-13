@@ -69,6 +69,9 @@ class Trainer:
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         config: object,
+        train_dataloader: Optional[Iterable[dict]] = None,
+        val_dataloader: Optional[Iterable[dict]] = None,
+        checkpoint_dir: Optional[Path] = None,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
         logger: Optional[logging.Logger] = None,
@@ -83,12 +86,17 @@ class Trainer:
         self.logger = logger or logging.getLogger(__name__)
         self.debug = debug
         self.dump_dir = Path(dump_dir) if dump_dir is not None else None
+        self.config = config
+        # Persist common runtime objects
+        self.train_dataloader = train_dataloader
+        self.val_dataloader = val_dataloader
+        self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir is not None else None
         # Evaluation parameters
         self.eval_every = int(config.EVALUATION.EVAL_EVERY)
         self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
         
         # Training parameters
-        self.epochs = int(config.TRAINING.EPOCHS)
+        self.epochs = int(config.TRAINING.EPOCHS) if not self.debug else 1
         self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
         self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
         self.criterion_name = str(config.TRAINING.LOSS).lower()
@@ -182,47 +190,6 @@ class Trainer:
             plt.savefig(self.dump_dir / f"{name}_hist_step_{self.state.step}.png")
             plt.close()
 
-    @torch.no_grad()
-    def _dump_sample(self, batch: Dict[str, Any]) -> None:
-        """Persist a batch with video, latents and model predictions."""
-        if self.dump_dir is None:
-            return
-
-        # Extract identifier if available
-        identifier = batch.get("index", "sample")
-        if torch.is_tensor(identifier):
-            identifier = int(identifier[0])
-
-        epoch = self.state.epoch + 1
-
-        # Move tensors to the appropriate device
-        if self.accelerator is not None:
-            device = self.accelerator.device
-        else:
-            device = next(self.model.parameters()).device
-        batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
-
-        with (
-            self.accelerator.autocast() if self.accelerator is not None else contextlib.nullcontext()
-        ):
-            latents = self.model.encode_video_with_backbone(batch)
-            latents, _ = self.model.norm_embeddings(latents)
-            context_latents, target_latents = self.model.split_latents(latents)
-            prediction, _ = self.model(batch)
-
-        sample_dir = self.dump_dir / f"{identifier}_epoch_{epoch}"
-        sample_dir.mkdir(parents=True, exist_ok=True)
-
-        to_dump = {
-            "video": batch.get("video"),
-            "context_latents": context_latents,
-            "target_latents": target_latents,
-            "prediction": prediction,
-        }
-        for name, tensor in to_dump.items():
-            if tensor is None:
-                continue
-            torch.save(tensor.detach().cpu(), sample_dir / f"{name}.pt")
 
     def _log_epoch(
         self,
@@ -255,10 +222,6 @@ class Trainer:
 
     def train_epoch(
         self,
-        dataloader: Iterable[dict],
-        epoch: int,
-        epochs: int,
-        val_loader: Optional[Iterable[dict]] = None,
     ) -> float:
         """Iterate over ``dataloader`` once, log metrics and return the mean loss."""
 
@@ -268,7 +231,7 @@ class Trainer:
             and not self.accelerator.is_main_process
         )
         progress_bar = tqdm(
-            dataloader,
+            self.train_dataloader,
             disable=disable,
             desc=f"Epoch {self.state.epoch + 1}",
         )
@@ -285,18 +248,13 @@ class Trainer:
             self.accelerator is None or self.accelerator.is_main_process
         ):
             wandb.log({f"train/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
-        val_loss: Optional[float] = None
-        should_eval = val_loader is not None and (epoch + 1) % self.eval_every == 0
-        if should_eval:
-            val_loss = self.val(val_loader)  # type: ignore[arg-type]
-        self._log_epoch(epoch, epochs, mean_loss, val_loss)
         return mean_loss
 
     # ------------------------------------------------------------------
     # Validation utilities
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def val(
+    def run_evaluation(
         self,
         dataloader: Iterable[dict],
         epoch: Optional[int] = None,
@@ -376,115 +334,29 @@ class Trainer:
     # Visualisation utilities
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def visualise(self, dataloader: Iterable[dict]) -> None:
-        """Dump a single batch from ``dataloader`` for later visualisation."""
-
-        if self.dump_dir is None:
-            return
-        try:
-            sample_batch = next(iter(dataloader))
-            self._dump_sample(sample_batch)
-        except Exception as exc:  # pragma: no cover - best effort
-            if self.logger is not None:
-                self.logger.warning(f"Could not dump sample: {exc}")
+    def visualise(self) -> None:
+        pass
 
     # ------------------------------------------------------------------
     # Checkpoint utilities
     # ------------------------------------------------------------------
-    def save_checkpoint(self, path: Path) -> None:
-        """Persist the training state to ``path``."""
+    def save_checkpoint(self) -> None:
+        pass
 
-        ckpt = {
-            "model": self.model.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-            "epoch": self.state.epoch,
-            "step": self.state.step,
-        }
-        torch.save(ckpt, path)
-        if self.logger is not None and (
-            self.accelerator is None or self.accelerator.is_main_process
-        ):
-            self.logger.info(f"Saved checkpoint to {path}")
 
     # ------------------------------------------------------------------
     # High level API
     # ------------------------------------------------------------------
-    def fit(
-        self,
-        train_loader: Iterable[dict],
-        val_loader: Optional[Iterable[dict]] = None,
-        epochs: Optional[int] = None,
-        checkpoint_dir: Optional[str] = None,
-    ) -> None:
-        """Run the training loop for ``epochs`` epochs.
-
-        Parameters
-        ----------
-        train_loader:
-            Dataloader yielding training batches.
-        val_loader:
-            Optional dataloader used for evaluation.
-        epochs:
-            Total number of epochs to train for. If ``None``, the value from
-            the configuration is used.
-        checkpoint_dir:
-            Directory to store checkpoints in.  If ``None`` no checkpoints are
-            written.
-
-        Notes
-        -----
-        Evaluation frequency is controlled by ``self.eval_every`` set during
-        initialisation.  If ``self.eval_first`` is ``True`` evaluation is run
-        once before any training.  Regardless of these settings, a final
-        evaluation is always performed after training concludes.
-        """
-
-        ckpt_path: Optional[Path] = Path(checkpoint_dir) if checkpoint_dir else None
-
-        if epochs is None:
-            epochs = self.epochs
-
-        if self.eval_first and val_loader is not None:
-            self.val(val_loader, epoch=0, epochs=epochs, log=True)
-
-        for epoch in range(epochs):
+    def fit(self):
+        if self.eval_first:
+            self.run_evaluation()
+        for epoch in range(self.epochs):
             self.state.epoch = epoch
-            self.train_epoch(train_loader, epoch, epochs, val_loader)
-
-            if self.dump_dir is not None and (
-                self.accelerator is None or self.accelerator.is_main_process
-            ):
-                dump_loader = val_loader if val_loader is not None else train_loader
-                self.visualise(dump_loader)
-
-            if self.debug and self.state.step >= 10:
-                return
-            if (
-                ckpt_path is not None
-                and (epoch + 1) % self.save_every == 0
-                and (
-                    self.accelerator is None or self.accelerator.is_main_process
-                )
-            ):
-                filename = ckpt_path / f"checkpoint_epoch_{epoch + 1}.pt"
-                self.save_checkpoint(filename)
-            if ckpt_path is not None and self.accelerator is not None:
-                self.accelerator.wait_for_everyone()
-        if val_loader is not None:
-            val_loss = self.val(val_loader)
-            msg = f"final val_{self.criterion_name}_loss: {val_loss:.4f}"
-            if self.logger is not None and (
-                self.accelerator is None or self.accelerator.is_main_process
-            ):
-                self.logger.info(msg)
-            if wandb.run is not None and (
-                self.accelerator is None or self.accelerator.is_main_process
-            ):
-                wandb.log(
-                    {f"epoch/final_eval_{self.criterion_name}_loss": val_loss},
-                    step=self.state.step,
-                )
-
+            self.train_epoch()
+            self.run_evaluation()
+            self.save_checkpoint()
+        self.run_evaluation()
+            
 class DeterministicTrainer(Trainer):
     """Trainer variant for deterministic models."""
 
@@ -493,6 +365,9 @@ class DeterministicTrainer(Trainer):
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         config: object,
+        train_dataloader: Optional[Iterable[dict]] = None,
+        val_dataloader: Optional[Iterable[dict]] = None,
+        checkpoint_dir: Optional[Path] = None,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
         logger: Optional[logging.Logger] = None,
@@ -503,6 +378,9 @@ class DeterministicTrainer(Trainer):
             model=model,
             optimizer=optimizer,
             config=config,
+            train_dataloader=train_dataloader,
+            val_dataloader=val_dataloader,
+            checkpoint_dir=checkpoint_dir,
             scheduler=scheduler,
             accelerator=accelerator,
             logger=logger,
@@ -512,4 +390,3 @@ class DeterministicTrainer(Trainer):
 
 
 __all__ = ["Trainer", "TrainState", "DeterministicTrainer", "get_criterion"]
-

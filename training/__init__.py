@@ -23,6 +23,9 @@ def build_trainer(
     config,
     model,
     optimizer,
+    train_dataloader=None,
+    val_dataloader=None,
+    checkpoint_dir=None,
     scheduler: Optional[object] = None,
     accelerator: Optional[object] = None,
     logger: Optional[logging.Logger] = None,
@@ -54,6 +57,9 @@ def build_trainer(
         model=model,
         optimizer=optimizer,
         config=config.TRAINER,
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        checkpoint_dir=checkpoint_dir,
         scheduler=scheduler,
         accelerator=accelerator,
         logger=logger,
@@ -69,4 +75,3 @@ __all__ = [
     "get_criterion",
     "build_trainer",
 ]
-

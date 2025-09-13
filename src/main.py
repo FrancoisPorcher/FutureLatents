@@ -146,20 +146,18 @@ def main() -> None:
     trainer = build_trainer(
         config=config,
         model=model,
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        checkpoint_dir=checkpoint_dir,
         optimizer=optimizer,
         scheduler=scheduler,
         accelerator=accelerator,
         logger=logger,
         debug=args.debug,
-        dump_dir=dump_dir if args.debug else None,
+        dump_dir=dump_dir
     )
 
-    trainer.fit(
-        train_dataloader,
-        val_dataloader,
-        epochs=1 if args.debug else None,
-        checkpoint_dir=checkpoint_dir,
-    )
+    trainer.fit()
 
     if accelerator.is_main_process and use_wandb and wandb.run is not None:
         wandb.finish()
