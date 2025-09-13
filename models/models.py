@@ -99,12 +99,17 @@ class LatentVideoBase(nn.Module):
         if video.dim() == 4:  # allow [T, C, H, W] without batch dim
             video = video.unsqueeze(0)
 
+        stride = self.config.BACKBONE.FRAME_STRIDE
+
+        if stride > 1:
+            video = video[:, ::stride, ...]
+
         b, t, _, _, _ = video.shape
 
-        # Collapse batch and time to process all frames in one pass
+        # Collapse batch and time to process all selected frames in one pass
         frames = rearrange(video, "b t c h w -> (b t) c h w")
         processed = self.preprocessor(images=frames, return_tensors="pt")
-        pixel_values = processed["pixel_values"].to(video.device)
+        pixel_values = processed["pixel_values"]
 
         with torch.inference_mode():
             outputs = self.encoder(pixel_values)
@@ -245,6 +250,8 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         latents, norms = self.norm_embeddings(latents)
 
         context_latents, target_latents = self.split_latents(latents)
+        
+        breakpoint()
 
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
