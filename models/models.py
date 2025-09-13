@@ -81,14 +81,44 @@ class LatentVideoBase(nn.Module):
         # Keep (T,H,W) spatial-temporal structure in the output if supported
         return self.encoder.get_vision_features(video)
 
-    def _forward_video_dinov3(self, inputs: Dict[str, Any]) -> torch.Tensor:  # pragma: no cover - placeholder until DINOV3 is enabled
-        """Placeholder DINOv3 video encoding.
+    def _forward_video_dinov3(self, inputs: Dict[str, Any]) -> torch.Tensor:  # pragma: no cover
+        """Encode a batch of videos using a DINOv3 image backbone.
 
-        Note: DINOv3 is an image backbone; a proper implementation would
-        encode frames individually and reshape to [B, D, T, H, W] tokens. This
-        placeholder raises a clear error until a DINOv3 config is used.
+        DINOv3 operates on individual images, so we flatten the temporal
+        dimension and treat all frames across the batch as a single batch of
+        images.  The resulting features are reshaped back to the
+        ``[B, D, T, H, W]`` layout expected by the rest of the model.
         """
-        raise NotImplementedError("DINOv3 video encoding is not implemented yet")
+
+        if "video" not in inputs:
+            raise ValueError("Missing 'video' in inputs for DINOv3 forward")
+        if self.encoder is None or self.preprocessor is None:
+            raise ValueError("`video` provided but no encoder is initialised")
+
+        video = inputs["video"]
+        if video.dim() == 4:  # allow [T, C, H, W] without batch dim
+            video = video.unsqueeze(0)
+
+        b, t, _, _, _ = video.shape
+
+        # Collapse batch and time to process all frames in one pass
+        frames = rearrange(video, "b t c h w -> (b t) c h w")
+        processed = self.preprocessor(images=frames, return_tensors="pt")
+        pixel_values = processed["pixel_values"].to(video.device)
+
+        with torch.inference_mode():
+            outputs = self.encoder(pixel_values)
+            hs = outputs.last_hidden_state[:, 5:, :]  # discard global tokens
+
+        spatial_tokens = hs.shape[1]
+        side = int(spatial_tokens ** 0.5)
+        if side * side != spatial_tokens:  # pragma: no cover - sanity check
+            raise ValueError("DINOv3 returned non-square token grid")
+
+        feats = rearrange(
+            hs, "(b t) (h w) d -> b d t h w", b=b, t=t, h=side, w=side
+        )
+        return feats
 
     def encode_video_with_backbone(self, inputs: Dict[str, Any]) -> torch.Tensor:
         """Public wrapper used by models to obtain [B, D, T, H, W] latents.
