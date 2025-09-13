@@ -30,17 +30,11 @@ class LatentVideoBase(nn.Module):
         # --- Optional backbone ---
         backbone_cfg = config.BACKBONE
         # Read family/type directly from config (already defined there)
-        self.backbone_type = (
-            backbone_cfg.BACKBONE_TYPE if backbone_cfg else None
+        self.backbone_name = (
+            backbone_cfg.BACKBONE_TYPE.lower() if backbone_cfg else None
         )
         # Assemble encoder and preprocessor via helper
         self.encoder, self.preprocessor = build_backbone(backbone_cfg)
-        if self.encoder is not None:
-            logger.info(
-                f"Loaded backbone encoder from {backbone_cfg.get('HF_REPO', None)} (family: {self.backbone_name})"
-            )
-        else:
-            logger.info("No backbone encoder, operating directly on latents")
 
         # --- Shared knobs ---
         self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
