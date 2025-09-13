@@ -371,12 +371,6 @@ class Trainer:
         """
 
         ckpt_path: Optional[Path] = Path(checkpoint_dir) if checkpoint_dir else None
-        if ckpt_path is not None and (
-            self.accelerator is None or self.accelerator.is_main_process
-        ):
-            ckpt_path.mkdir(parents=True, exist_ok=True)
-        if ckpt_path is not None and self.accelerator is not None:
-            self.accelerator.wait_for_everyone()
 
         if epochs is None:
             epochs = self.epochs
