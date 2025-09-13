@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Callable, Dict
+from typing import Iterable, Optional, Callable, Dict, Any
+import contextlib
 
 import torch
 import torch.nn.functional as F
@@ -82,8 +83,6 @@ class Trainer:
         self.logger = logger or logging.getLogger(__name__)
         self.debug = debug
         self.dump_dir = Path(dump_dir) if dump_dir is not None else None
-        if self.dump_dir is not None:
-            self.dump_dir.mkdir(parents=True, exist_ok=True)
         # Evaluation parameters
         self.eval_every = int(config.EVALUATION.EVAL_EVERY)
         self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
@@ -183,6 +182,48 @@ class Trainer:
             plt.savefig(self.dump_dir / f"{name}_hist_step_{self.state.step}.png")
             plt.close()
 
+    @torch.no_grad()
+    def _dump_sample(self, batch: Dict[str, Any]) -> None:
+        """Persist a batch with video, latents and model predictions."""
+        if self.dump_dir is None:
+            return
+
+        # Extract identifier if available
+        identifier = batch.get("index", "sample")
+        if torch.is_tensor(identifier):
+            identifier = int(identifier[0])
+
+        epoch = self.state.epoch + 1
+
+        # Move tensors to the appropriate device
+        if self.accelerator is not None:
+            device = self.accelerator.device
+        else:
+            device = next(self.model.parameters()).device
+        batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
+
+        with (
+            self.accelerator.autocast() if self.accelerator is not None else contextlib.nullcontext()
+        ):
+            latents = self.model.encode_video_with_backbone(batch)
+            latents, _ = self.model.norm_embeddings(latents)
+            context_latents, target_latents = self.model.split_latents(latents)
+            prediction, _ = self.model(batch)
+
+        sample_dir = self.dump_dir / f"{identifier}_epoch_{epoch}"
+        sample_dir.mkdir(parents=True, exist_ok=True)
+
+        to_dump = {
+            "video": batch.get("video"),
+            "context_latents": context_latents,
+            "target_latents": target_latents,
+            "prediction": prediction,
+        }
+        for name, tensor in to_dump.items():
+            if tensor is None:
+                continue
+            torch.save(tensor.detach().cpu(), sample_dir / f"{name}.pt")
+
     def train_epoch(self, dataloader: Iterable[dict]) -> float:
         """Iterate over ``dataloader`` once and return the mean loss."""
 
@@ -261,6 +302,22 @@ class Trainer:
                 step=self.state.step,
             )
         return mean_loss
+
+    # ------------------------------------------------------------------
+    # Visualisation utilities
+    # ------------------------------------------------------------------
+    @torch.no_grad()
+    def visualise(self, dataloader: Iterable[dict]) -> None:
+        """Dump a single batch from ``dataloader`` for later visualisation."""
+
+        if self.dump_dir is None:
+            return
+        try:
+            sample_batch = next(iter(dataloader))
+            self._dump_sample(sample_batch)
+        except Exception as exc:  # pragma: no cover - best effort
+            if self.logger is not None:
+                self.logger.warning(f"Could not dump sample: {exc}")
 
     # ------------------------------------------------------------------
     # Checkpoint utilities
@@ -357,6 +414,12 @@ class Trainer:
                 self.accelerator is None or self.accelerator.is_main_process
             ):
                 wandb.log(epoch_log, step=self.state.step)
+
+            if self.dump_dir is not None and (
+                self.accelerator is None or self.accelerator.is_main_process
+            ):
+                dump_loader = val_loader if val_loader is not None else train_loader
+                self.visualise(dump_loader)
 
             if self.debug and self.state.step >= 10:
                 return
