@@ -39,10 +39,17 @@ def get_criterion(name: str) -> Callable[[torch.Tensor, torch.Tensor], torch.Ten
 
 @dataclass
 class TrainState:
-    """Simple container for tracking the state of the training process."""
+    """Container for tracking training state."""
 
-    epoch: int = 0
-    step: int = 0
+    # Progress
+    epoch: int = 0                      # 0-based
+    step: int = 0                       # global optimization steps (after grad accumulation)
+    micro_step: int = 0                 # raw batches seen (before accumulation)
+
+    # Timing
+    wall_time_start: float = 0.0        # set at trainer init
+    wall_time_total: float = 0.0        # cumulative seconds
+
 
 
 class Trainer:
@@ -135,14 +142,16 @@ class Trainer:
                     norms = None
                 loss = self.criterion(prediction, target)
             self.accelerator.backward(loss)
-            if self.max_grad_norm is not None:
-                self.accelerator.clip_grad_norm_(
-                    self.model.parameters(), self.max_grad_norm
-                )
-            if self.max_grad_value is not None:
-                self.accelerator.clip_grad_value_(
-                    self.model.parameters(), self.max_grad_value
-                )
+            # Only clip gradients on real optimisation steps (post accumulation)
+            if self.accelerator.sync_gradients:
+                if self.max_grad_norm is not None:
+                    self.accelerator.clip_grad_norm_(
+                        self.model.parameters(), self.max_grad_norm
+                    )
+                if self.max_grad_value is not None:
+                    self.accelerator.clip_grad_value_(
+                        self.model.parameters(), self.max_grad_value
+                    )
             self.optimizer.step()
             if self.scheduler is not None:
                 self.scheduler.step()
@@ -151,13 +160,15 @@ class Trainer:
         loss_value = loss.detach()
         if self.accelerator.num_processes > 1:
             loss_value = self.accelerator.gather(loss_value).mean()
-        if wandb.run is not None and self.accelerator.is_main_process:
-            lr = self.optimizer.param_groups[0]["lr"]
-            wandb.log(
-                {f"train/{self.criterion_name}_loss": loss_value.item(), "train/lr": lr},
-                step=self.state.step,
-            )
-        self.state.step += 1
+        # Log and advance the global step only on real optimisation steps
+        if self.accelerator.sync_gradients:
+            if wandb.run is not None and self.accelerator.is_main_process:
+                lr = self.optimizer.param_groups[0]["lr"]
+                wandb.log(
+                    {f"train/{self.criterion_name}_loss": loss_value.item(), "train/lr": lr},
+                    step=self.state.step,
+                )
+            self.state.step += 1
         if self.debug and self.dump_dir is not None:
             self._dump_norms(norms)
         return loss_value.item()
@@ -251,85 +262,12 @@ class Trainer:
         return mean_loss
 
     # ------------------------------------------------------------------
-    # Validation utilities
+    # Evaluation
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def run_evaluation(
-        self,
-        dataloader: Iterable[dict],
-        epoch: Optional[int] = None,
-        epochs: Optional[int] = None,
-        log: bool = False,
-    ) -> float:
-        """Evaluate the model on ``dataloader`` and return the mean loss.
-
-        Parameters
-        ----------
-        dataloader:
-            Iterable yielding batches for evaluation.
-        epoch, epochs:
-            When ``log`` is ``True``, these specify the current and total
-            epochs used in the log message.
-        log:
-            If ``True`` log the aggregated validation loss using
-            ``self.logger``.
-        """
-
-        self.model.eval()
-        total_loss = 0.0
-        if self.accelerator is None:
-            raise NotImplementedError(
-                "Trainer.train_step() requires an accelerator."
-            )
-        
-        disable = (
-            self.accelerator is not None
-            and not self.accelerator.is_main_process
-        )
-        progress_bar = tqdm(
-            dataloader,
-            disable=disable,
-            desc=f"Eval {self.state.epoch + 1}",
-        )
-        for batch in progress_bar:
-            with self.accelerator.autocast():
-                prediction, target = self.model(batch)
-            prediction, target = self.accelerator.gather_for_metrics(
-                (prediction, target)
-            )
-            # loss computed in fp32
-            loss = self.criterion(prediction.float(), target.float())
-            loss_value = loss.detach()
-            total_loss += loss_value.item()
-            if wandb.run is not None and self.accelerator.is_main_process:
-                wandb.log(
-                    {f"eval/{self.criterion_name}_loss": loss_value.item()},
-                    step=self.state.step,
-                )
-            self.state.step += 1
-            progress_bar.set_postfix(
-                {f"{self.criterion_name}_loss": total_loss / max(progress_bar.n, 1)},
-                refresh=False,
-            )
-        mean_loss = total_loss / max(len(dataloader), 1)
-        if wandb.run is not None and self.accelerator.is_main_process:
-            wandb.log(
-                {f"eval/avg_{self.criterion_name}_loss": mean_loss},
-                step=self.state.step,
-            )
-        if log and self.logger is not None and (
-            self.accelerator is None or self.accelerator.is_main_process
-        ):
-            if epoch is not None and epochs is not None:
-                msg = (
-                    f"epoch {epoch}/{epochs} - val_{self.criterion_name}_loss: "
-                    f"{mean_loss:.4f}"
-                )
-            else:
-                msg = f"val_{self.criterion_name}_loss: {mean_loss:.4f}"
-            self.logger.info(msg)
-        return mean_loss
-
+    def run_evaluation():
+        pass
+    
     # ------------------------------------------------------------------
     # Visualisation utilities
     # ------------------------------------------------------------------
@@ -351,7 +289,6 @@ class Trainer:
         if self.eval_first:
             self.run_evaluation()
         for epoch in range(self.epochs):
-            self.state.epoch = epoch
             self.train_epoch()
             self.run_evaluation()
             self.save_checkpoint()
