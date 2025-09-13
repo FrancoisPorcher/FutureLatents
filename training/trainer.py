@@ -224,8 +224,43 @@ class Trainer:
                 continue
             torch.save(tensor.detach().cpu(), sample_dir / f"{name}.pt")
 
-    def train_epoch(self, dataloader: Iterable[dict]) -> float:
-        """Iterate over ``dataloader`` once and return the mean loss."""
+    def _log_epoch(
+        self,
+        epoch: int,
+        epochs: int,
+        train_loss: float,
+        val_loss: Optional[float] = None,
+    ) -> None:
+        """Log epoch-level metrics to the configured logger and ``wandb``."""
+
+        msg = (
+            f"epoch {epoch + 1}/{epochs} - train_{self.criterion_name}_loss: "
+            f"{train_loss:.4f}"
+        )
+        epoch_log: Dict[str, Any] = {
+            "epoch": epoch + 1,
+            f"epoch/train_{self.criterion_name}_loss": train_loss,
+        }
+        if val_loss is not None:
+            msg += f", val_{self.criterion_name}_loss: {val_loss:.4f}"
+            epoch_log[f"epoch/eval_{self.criterion_name}_loss"] = val_loss
+        if self.logger is not None and (
+            self.accelerator is None or self.accelerator.is_main_process
+        ):
+            self.logger.info(msg)
+        if wandb.run is not None and (
+            self.accelerator is None or self.accelerator.is_main_process
+        ):
+            wandb.log(epoch_log, step=self.state.step)
+
+    def train_epoch(
+        self,
+        dataloader: Iterable[dict],
+        epoch: int,
+        epochs: int,
+        val_loader: Optional[Iterable[dict]] = None,
+    ) -> float:
+        """Iterate over ``dataloader`` once, log metrics and return the mean loss."""
 
         total_loss = 0.0
         disable = (
@@ -250,6 +285,11 @@ class Trainer:
             self.accelerator is None or self.accelerator.is_main_process
         ):
             wandb.log({f"train/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
+        val_loss: Optional[float] = None
+        should_eval = val_loader is not None and (epoch + 1) % self.eval_every == 0
+        if should_eval:
+            val_loss = self.val(val_loader)  # type: ignore[arg-type]
+        self._log_epoch(epoch, epochs, mean_loss, val_loss)
         return mean_loss
 
     # ------------------------------------------------------------------
@@ -391,29 +431,7 @@ class Trainer:
 
         for epoch in range(epochs):
             self.state.epoch = epoch
-            train_loss = self.train_epoch(train_loader)
-            msg = (
-                f"epoch {epoch + 1}/{epochs} - train_{self.criterion_name}_loss: "
-                f"{train_loss:.4f}"
-            )
-            epoch_log = {
-                "epoch": epoch + 1,
-                f"epoch/train_{self.criterion_name}_loss": train_loss,
-            }
-            if val_loader is not None and (epoch + 1) % self.eval_every == 0:
-                val_loss = self.val(val_loader)
-                msg += f", val_{self.criterion_name}_loss: {val_loss:.4f}"
-                epoch_log[
-                    f"epoch/eval_{self.criterion_name}_loss"
-                ] = val_loss
-            if self.logger is not None and (
-                self.accelerator is None or self.accelerator.is_main_process
-            ):
-                self.logger.info(msg)
-            if wandb.run is not None and (
-                self.accelerator is None or self.accelerator.is_main_process
-            ):
-                wandb.log(epoch_log, step=self.state.step)
+            self.train_epoch(train_loader, epoch, epochs, val_loader)
 
             if self.dump_dir is not None and (
                 self.accelerator is None or self.accelerator.is_main_process
