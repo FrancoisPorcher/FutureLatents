@@ -38,9 +38,7 @@ class LatentVideoBase(nn.Module):
 
         # --- Shared knobs ---
         self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
-        self.embedding_norm = getattr(
-            config.TRAINER.TRAINING, "EMBEDDING_NORM", "none"
-        ).lower()
+        self.embedding_norm = config.TRAINER.TRAINING.EMBEDDING_NORM.lower()
 
         # --- Encoder freeze policy ---
         self.set_encoder_trainable(config.ENCODER_TRAINABLE)

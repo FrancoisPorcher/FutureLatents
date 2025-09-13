@@ -27,6 +27,17 @@ def build_backbone(backbone_cfg: Any) -> Tuple[Any, Any]:
         # AutoVideoProcessor also covers many video/image processors on HF
         preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
         return encoder, preprocessor
+    elif backbone_type == "dinov3":
+        processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        model = AutoModel.from_pretrained(
+            pretrained_model_name, 
+            device_map="auto", 
+        )
+
+        processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name,
+            size={"height": 256, "width": 256},   # 👈 force resize
+        )
 
     logger.warning("Unknown backbone type '%s'; no encoder will be loaded", backbone_type)
     return None, None
