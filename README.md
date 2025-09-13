@@ -5,10 +5,10 @@ operating directly in latent space. Given a set of initial context frames, the
 model generates the future latent representations in a purely conditioned
 fashion.
 
-It currently targets the VJEPA2 backbone and the Kinetics 400 dataset and
-provides a `Kinetics400_cached` variant for training on pre-computed
-embeddings.  Future work will extend support to additional backbones and
-datasets.
+It currently targets the VJEPA2 and DINOv3 backbones and the Kinetics 400
+dataset, and provides a `Kinetics400_cached` variant for training on
+pre-computed embeddings. Support for 4DS is incoming alongside additional
+backbones and datasets.
 
 
 ## Installation
