@@ -19,6 +19,22 @@ logger = logging.getLogger(__name__)
 from torch import linalg as LA
 
 
+def build_backbone(backbone_cfg: Any) -> Tuple[Any, Any]:
+    """Construct the optional backbone encoder and preprocessor.
+
+    Returns a tuple ``(encoder, preprocessor)``. When no backbone is
+    configured (e.g., missing or empty ``HF_REPO``), both are ``None``.
+    """
+    if backbone_cfg.backbone_type == "vjepa2":
+        hf_repo = backbone_cfg.HF_REPO
+        encoder = AutoModel.from_pretrained(hf_repo)
+        # AutoVideoProcessor also covers many video/image processors on HF
+        preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
+        return encoder, preprocessor
+    else:
+        return None, None
+
+
 class LatentVideoBase(nn.Module):
     """Lightweight base: only shared utilities + (optional) backbone. No algorithm-specific parts."""
 
@@ -28,17 +44,16 @@ class LatentVideoBase(nn.Module):
 
         # --- Optional backbone ---
         backbone_cfg = getattr(config, "BACKBONE", None)
-        # Infer backbone family (e.g. "vjepa2" or "dinov3") from config
-        self.backbone_name = self._infer_backbone_name(backbone_cfg)
-        hf_repo = getattr(backbone_cfg, "HF_REPO", None) if backbone_cfg is not None else None
-        if hf_repo:
-            self.encoder = AutoModel.from_pretrained(hf_repo)
-            # AutoVideoProcessor also covers many video/image processors on HF
-            self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
-            logger.info(f"Loaded backbone encoder from {hf_repo} (family: {self.backbone_name})")
+        # Read family/type directly from config (already defined there)
+        self.backbone_type = str(getattr(backbone_cfg, "BACKBONE_TYPE", "unknown") or "unknown").lower()
+        self.backbone_name = self.backbone_type
+        # Assemble encoder and preprocessor via helper
+        self.encoder, self.preprocessor = build_backbone(backbone_cfg)
+        if self.encoder is not None:
+            logger.info(
+                f"Loaded backbone encoder from {getattr(backbone_cfg, 'HF_REPO', None)} (family: {self.backbone_name})"
+            )
         else:
-            self.encoder = None
-            self.preprocessor = None
             logger.info("No backbone encoder, operating directly on latents")
 
         # --- Shared knobs ---
@@ -75,22 +90,6 @@ class LatentVideoBase(nn.Module):
     # ------------------------------
     # Forward helpers
     # ------------------------------
-    def _infer_backbone_name(self, backbone_cfg: Any) -> str:
-        """Infer the backbone family name from config (vjepa2 or dinov3).
-
-        Looks at ``MODEL_NAME`` first, then ``HF_REPO``. Falls back to
-        "unknown" when it cannot decide.
-        """
-        if backbone_cfg is None:
-            return "unknown"
-        name = str(getattr(backbone_cfg, "MODEL_NAME", "") or "").lower()
-        repo = str(getattr(backbone_cfg, "HF_REPO", "") or "").lower()
-        haystack = f"{name} {repo}"
-        if "vjepa2" in haystack:
-            return "vjepa2"
-        if "dinov3" in haystack:
-            return "dinov3"
-        return "unknown"
 
     def _forward_video_vjepa2(self, inputs: Dict[str, Any]) -> torch.Tensor:
         if "video" not in inputs:
