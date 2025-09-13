@@ -102,7 +102,9 @@ class LatentVideoBase(nn.Module):
         raise NotImplementedError("DINOv3 video encoding is not implemented yet")
 
     def encode_video_with_backbone(self, inputs: Dict[str, Any]) -> torch.Tensor:
-        """Encode raw video or return cached embeddings based on inputs.
+        """Public wrapper used by models to obtain [B, D, T, H, W] latents.
+
+        Encode raw video or return cached embeddings based on inputs.
 
         - When ``inputs`` contains ``"video"``, route to the appropriate
           backbone forward according to ``self.backbone_name``.
@@ -131,10 +133,6 @@ class LatentVideoBase(nn.Module):
 
         raise ValueError("`inputs` must contain either 'video' or 'embedding'")
 
-    def encode_inputs(self, inputs: Dict[str, Any]) -> torch.Tensor:
-        """Public wrapper used by models to obtain [B, D, T, H, W] latents."""
-        return self.encode_video_with_backbone(inputs)
-
     def split_latents(self, latents: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         n = int(self.num_context_latents)
         if n < 0 or n > latents.shape[2]:
@@ -156,7 +154,7 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
         self.num_train_timesteps = int(config.MODEL.NUM_TRAIN_TIMESTEPS)
 
     def forward(self, batch: Dict[str, Any], return_norms: bool = False):
-        latents = self.encode_inputs(batch)  # [B, D, T, H, W]
+        latents = self.encode_video_with_backbone(batch)  # [B, D, T, H, W]
         norms = None
         if self.normalize_embeddings:
             norm_per_token_l1 = LA.vector_norm(latents, ord=1, dim=1)
@@ -194,7 +192,7 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         self.predictor = PredictorTransformer(**dit_cfg)
 
     def forward(self, batch: Dict[str, Any], return_norms: bool = False):
-        latents = self.encode_inputs(batch)  # [B, D, T, H, W]
+        latents = self.encode_video_with_backbone(batch)  # [B, D, T, H, W]
 
         norms = None
         if self.normalize_embeddings:
