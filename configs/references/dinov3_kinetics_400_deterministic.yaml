@@ -1,4 +1,4 @@
 inherits:
   - ../datasets/kinetics_400.yaml
-  - ../backbones/vjepa2.yaml
+  - ../backbones/dinov3.yaml
   - ../training/trainer_deterministic.yaml

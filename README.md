@@ -45,7 +45,6 @@ inherits:
   - ../datasets/kinetics_400.yaml
   - ../backbones/vjepa2.yaml
   - ../training/trainer_flow_matching.yaml
-encoder_trainable: false
 ```
 
 The `trainer.training` section controls optimisation parameters such as loss
