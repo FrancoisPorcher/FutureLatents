@@ -28,12 +28,11 @@ class LatentVideoBase(nn.Module):
         self.config = config
 
         # --- Optional backbone ---
-        backbone_cfg = config.get("BACKBONE")
+        backbone_cfg = config.BACKBONE
         # Read family/type directly from config (already defined there)
         self.backbone_type = (
-            str(backbone_cfg.get("BACKBONE_TYPE", "unknown") if backbone_cfg else "unknown").lower()
+            backbone_cfg.BACKBONE_TYPE if backbone_cfg else None
         )
-        self.backbone_name = self.backbone_type
         # Assemble encoder and preprocessor via helper
         self.encoder, self.preprocessor = build_backbone(backbone_cfg)
         if self.encoder is not None:

@@ -8,15 +8,13 @@ def build_backbone(backbone_cfg: Any) -> Tuple[Any, Any]:
     Returns a tuple ``(encoder, preprocessor)``. When no backbone is
     configured (e.g., missing or empty configuration), both are ``None``.
     """
-    if not backbone_cfg:
+    if backbone_cfg is None:
         return None, None
-
-    backbone_type = str(backbone_cfg.get("BACKBONE_TYPE", "") or "").lower()
+    else:
+    backbone_type = backbone_cfg.BACKBONE_TYPE
     if backbone_type == "vjepa2":
         hf_repo = backbone_cfg.get("HF_REPO")
-        if hf_repo:
-            encoder = AutoModel.from_pretrained(hf_repo)
-            # AutoVideoProcessor also covers many video/image processors on HF
-            preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
-            return encoder, preprocessor
-    return None, None
+        encoder = AutoModel.from_pretrained(hf_repo)
+        # AutoVideoProcessor also covers many video/image processors on HF
+        preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
+        return encoder, preprocessor
