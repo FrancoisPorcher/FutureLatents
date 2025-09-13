@@ -27,12 +27,15 @@ class LatentVideoBase(nn.Module):
         self.config = config
 
         # --- Optional backbone ---
-        backbone_cfg = config.BACKBONE
-        hf_repo = backbone_cfg.HF_REPO
+        backbone_cfg = getattr(config, "BACKBONE", None)
+        # Infer backbone family (e.g. "vjepa2" or "dinov3") from config
+        self.backbone_name = self._infer_backbone_name(backbone_cfg)
+        hf_repo = getattr(backbone_cfg, "HF_REPO", None) if backbone_cfg is not None else None
         if hf_repo:
             self.encoder = AutoModel.from_pretrained(hf_repo)
+            # AutoVideoProcessor also covers many video/image processors on HF
             self.preprocessor = AutoVideoProcessor.from_pretrained(hf_repo)
-            logger.info(f"Loaded backbone encoder from {hf_repo}")
+            logger.info(f"Loaded backbone encoder from {hf_repo} (family: {self.backbone_name})")
         else:
             self.encoder = None
             self.preprocessor = None
@@ -72,19 +75,80 @@ class LatentVideoBase(nn.Module):
     # ------------------------------
     # Forward helpers
     # ------------------------------
-    def encode_inputs(self, inputs: Dict[str, Any]):
+    def _infer_backbone_name(self, backbone_cfg: Any) -> str:
+        """Infer the backbone family name from config (vjepa2 or dinov3).
+
+        Looks at ``MODEL_NAME`` first, then ``HF_REPO``. Falls back to
+        "unknown" when it cannot decide.
+        """
+        if backbone_cfg is None:
+            return "unknown"
+        name = str(getattr(backbone_cfg, "MODEL_NAME", "") or "").lower()
+        repo = str(getattr(backbone_cfg, "HF_REPO", "") or "").lower()
+        haystack = f"{name} {repo}"
+        if "vjepa2" in haystack:
+            return "vjepa2"
+        if "dinov3" in haystack:
+            return "dinov3"
+        return "unknown"
+
+    def _forward_video_vjepa2(self, inputs: Dict[str, Any]) -> torch.Tensor:
+        if "video" not in inputs:
+            raise ValueError("Missing 'video' in inputs for VJEPA2 forward")
+        if self.encoder is None or self.preprocessor is None:
+            raise ValueError("`video` provided but no encoder is initialised")
+        processed = self.preprocessor(inputs["video"], return_tensors="pt")
+        video = processed["pixel_values_videos"]  # type: ignore[index]
+        # Move to model device
+        device = next(self.parameters()).device
+        video = video.to(device)
+        # Keep (T,H,W) spatial-temporal structure in the output if supported
+        return self.encoder.get_vision_features(
+            video, keep_spatio_temporal_dimension=True
+        )
+
+    def _forward_video_dinov3(self, inputs: Dict[str, Any]) -> torch.Tensor:  # pragma: no cover - placeholder until DINOV3 is enabled
+        """Placeholder DINOv3 video encoding.
+
+        Note: DINOv3 is an image backbone; a proper implementation would
+        encode frames individually and reshape to [B, D, T, H, W] tokens. This
+        placeholder raises a clear error until a DINOv3 config is used.
+        """
+        raise NotImplementedError("DINOv3 video encoding is not implemented yet")
+
+    def encode_video_with_backbone(self, inputs: Dict[str, Any]) -> torch.Tensor:
+        """Encode raw video or return cached embeddings based on inputs.
+
+        - When ``inputs`` contains ``"video"``, route to the appropriate
+          backbone forward according to ``self.backbone_name``.
+        - When ``inputs`` contains ``"embedding"``, return it directly (and
+          require that no encoder is initialised).
+        """
+        # Cached embeddings path
+        if "embedding" in inputs:
+            if self.encoder is not None:
+                raise ValueError(
+                    "`embedding` provided but encoder is initialised; remove encoder to use cached embeddings"
+                )
+            return inputs["embedding"]
+
+        # Raw video path
         if "video" in inputs:
             if self.encoder is None:
                 raise ValueError("`video` provided but no encoder is initialised")
-            video = self.preprocessor(inputs["video"], return_tensors="pt")["pixel_values_videos"]
-            return self.encoder.get_vision_features(video, keep_spatio_temporal_dimension=True)
-
-        if "embedding" in inputs:
-            if self.encoder is not None:
-                raise ValueError("`embedding` provided but encoder is initialised; remove encoder to use cached embeddings")
-            return inputs["embedding"]
+            if self.backbone_name == "vjepa2":
+                return self._forward_video_vjepa2(inputs)
+            if self.backbone_name == "dinov3":
+                return self._forward_video_dinov3(inputs)
+            raise ValueError(
+                f"Unknown or unsupported backbone '{self.backbone_name}'. Expected 'vjepa2' or 'dinov3'."
+            )
 
         raise ValueError("`inputs` must contain either 'video' or 'embedding'")
+
+    def encode_inputs(self, inputs: Dict[str, Any]) -> torch.Tensor:
+        """Public wrapper used by models to obtain [B, D, T, H, W] latents."""
+        return self.encode_video_with_backbone(inputs)
 
     def split_latents(self, latents: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         n = int(self.num_context_latents)

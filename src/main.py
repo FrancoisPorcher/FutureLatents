@@ -10,6 +10,7 @@ from datasets import build_dataset
 from training import build_trainer
 from utils.parser import create_parser
 from utils.config import load_config, print_config
+from utils.filesystem import make_experiment_dirs
 import torch
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
@@ -52,40 +53,33 @@ def main() -> None:
     project_root = Path(__file__).resolve().parent.parent
     experiment_root = project_root / "experiment" / config_name
     overwrite_experiment = experiment_root.exists()
+    # When overwriting, remove the entire folder (no distinctions), unless debug.
     if overwrite_experiment and accelerator.is_main_process:
-        print("Overwritting experiment", experiment_root)
-        for path in experiment_root.iterdir():
-            if path.name == "slurm":
-                continue
-            if path.is_dir():
-                shutil.rmtree(path)
-            else:
-                path.unlink()
+        print("Overwriting experiment", experiment_root)
+        shutil.rmtree(experiment_root)
     accelerator.wait_for_everyone()
-    checkpoints_dir = experiment_root / "checkpoints"
+
+    # Define directory paths for later use
+    checkpoint_dir = experiment_root / "checkpoints"
     logs_dir = experiment_root / "logs"
     config_dir = experiment_root / "config"
     slurm_dir = experiment_root / "slurm"
     dump_dir = experiment_root / "dump"
+
+    # Create folder structure via helper, unless debug.
     if accelerator.is_main_process:
-        checkpoints_dir.mkdir(parents=True, exist_ok=True)
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        config_dir.mkdir(parents=True, exist_ok=True)
-        slurm_dir.mkdir(parents=True, exist_ok=True)
-        if args.debug:
-            dump_dir.mkdir(parents=True, exist_ok=True)
+        make_experiment_dirs(experiment_root)
     accelerator.wait_for_everyone()
 
     train_dataset = build_dataset(config, split="train")
     val_dataset = build_dataset(config, split="val")
 
-    max_train_steps = int(config.TRAINER.TRAINING.get("MAX_STEPS", -1))
-    if max_train_steps > 0:
-        train_dataset = torch.utils.data.Subset(train_dataset, range(max_train_steps))
-
-    max_eval_videos = int(config.TRAINER.EVALUATION.get("MAX_VIDEOS", -1))
-    if max_eval_videos > 0:
-        val_dataset = torch.utils.data.Subset(val_dataset, range(max_eval_videos))
+    # In debug mode, limit dataset sizes to speed up iterations.
+    if args.debug:
+        DEBUG_TRAIN_STEPS = 50
+        DEBUG_VAL_STEPS = 50
+        train_dataset = torch.utils.data.Subset(train_dataset, range(DEBUG_TRAIN_STEPS))
+        val_dataset = torch.utils.data.Subset(val_dataset, range(DEBUG_VAL_STEPS))
 
     model = build_model(config)
 
@@ -115,10 +109,13 @@ def main() -> None:
 
     log_file = logs_dir / "train.log"
     if accelerator.is_main_process:
-        logging.basicConfig(
-            level=logging.INFO,
-            handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
-        )
+        if args.debug:
+            logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler()])
+        else:
+            logging.basicConfig(
+                level=logging.INFO,
+                handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
+            )
     else:
         logging.basicConfig(level=logging.ERROR)
     logger = logging.getLogger(__name__)
@@ -129,7 +126,7 @@ def main() -> None:
         )
 
     use_wandb = config.WANDB and not args.debug
-    accelerator.print(f"use_wandb {use_wandb}")
+    logger.info("use_wandb %s", use_wandb)
 
     if accelerator.is_main_process:
         model.count_parameters()
@@ -157,7 +154,6 @@ def main() -> None:
         dump_dir=dump_dir if args.debug else None,
     )
 
-    checkpoint_dir = checkpoints_dir
     trainer.fit(
         train_dataloader,
         val_dataloader,
