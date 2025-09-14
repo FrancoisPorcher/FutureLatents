@@ -19,6 +19,7 @@ from accelerate import Accelerator
 from accelerate.utils import tqdm
 import logging
 import wandb
+from einops import rearrange
 from .losses import get_criterion
 
 @dataclass
@@ -38,23 +39,56 @@ class TrainState:
     # Mutators
     # ------------------------------------------------------------------
     def increment_epoch(self) -> None:
-        """Advance the epoch counter by one."""
+        """Advance the epoch counter by one.
+
+        Definition: An "epoch" is one full pass over the training dataset
+        (i.e., iterating through the entire train dataloader once). This
+        counter is tracked internally as 0-based, while logs often display
+        ``epoch + 1`` for human-friendly 1-based numbering. It is typically
+        incremented after ``train_epoch`` completes.
+        """
         self.epoch += 1
 
     def increment_step(self) -> None:
-        """Advance the optimisation step counter by one."""
+        """Advance the optimisation step counter by one.
+
+        Definition: A "step" is a real optimisation update (a call to
+        ``optimizer.step()``) that happens after gradient accumulation. In the
+        training loop this is only incremented when
+        ``accelerator.sync_gradients`` is ``True`` (i.e., once per accumulation
+        cycle). This serves as the global training step used for logging and
+        scheduler stepping.
+        """
         self.step += 1
 
     def increment_micro_step(self) -> None:
-        """Advance the raw micro step counter by one."""
+        """Advance the raw micro step counter by one.
+
+        Definition: A "micro step" counts every micro-batch processed (each
+        dataloader iteration), regardless of whether gradients are synced. It
+        increases on every batch seen before accumulation, so it can be larger
+        than ``step`` when gradient accumulation is enabled.
+        """
         self.micro_step += 1
 
     def start_timer(self) -> None:
-        """Record the wall time start."""
+        """Record the wall time start.
+
+        Definition: ``wall_time_start`` stores the UNIX timestamp marking when
+        timing began (initialised at trainer construction and can be reset).
+        Used together with ``wall_time_total`` to measure elapsed real
+        wall-clock time for the run.
+        """
         self.wall_time_start = time.time()
 
     def update_wall_time(self) -> None:
-        """Update the cumulative wall time."""
+        """Update the cumulative wall time.
+
+        Definition: ``wall_time_total`` is the elapsed wall-clock time in
+        seconds since ``wall_time_start``. This method refreshes that value
+        using the current time. It is called after each ``train_step`` so that
+        ``wall_time_total`` remains up-to-date for monitoring or logging.
+        """
         self.wall_time_total = time.time() - self.wall_time_start
 
 
@@ -155,6 +189,45 @@ class Trainer:
             return False
         return True
 
+    def _record_grad_norm_event(self, total_norm: Any) -> None:
+        """Update per-epoch gradient-related event counters from a norm value.
+
+        Converts ``total_norm`` to a tensor ``gradient_norm`` and:
+        - Increments ``_epoch_grad_nan_inf_count`` if non-finite.
+        - Increments ``_epoch_grad_clip_norm_count`` if it exceeds ``max_grad_norm``.
+        """
+        gradient_norm = torch.as_tensor(total_norm)
+        if not torch.isfinite(gradient_norm):
+            self._epoch_grad_nan_inf_count += 1
+        elif float(gradient_norm.item()) > float(self.max_grad_norm):
+            # Increment only when clipping actually occurred
+            self._epoch_grad_clip_norm_count += 1
+
+    def _record_grad_value_event(self) -> None:
+        """Update per-epoch gradient-related event counters from value clipping.
+
+        Scans parameter gradients to:
+        - Increment ``_epoch_grad_nan_inf_count`` if any gradient contains NaN/Inf.
+        - Increment ``_epoch_grad_clip_value_count`` if any finite gradient value
+          exceeds ``max_grad_value`` in absolute value (i.e., clipping would occur).
+        """
+        # First, detect any non-finite gradients
+        for p in self.model.parameters():
+            if p.grad is None:
+                continue
+            if not torch.isfinite(p.grad).all():
+                self._epoch_grad_nan_inf_count += 1
+                return
+
+        # If all gradients are finite, check whether value clipping will trigger
+        threshold = float(self.max_grad_value)
+        for p in self.model.parameters():
+            if p.grad is None:
+                continue
+            if torch.any(torch.abs(p.grad) > threshold):
+                self._epoch_grad_clip_value_count += 1
+                break
+
     def train_step(self, batch: dict) -> float:
         """Perform a single optimisation step."""
         if self.accelerator.is_main_process:
@@ -178,13 +251,10 @@ class Trainer:
                     total_norm = self.accelerator.clip_grad_norm_(
                         self.model.parameters(), self.max_grad_norm
                     )
-                    # Increment only when clipping actually occurred
-                    tn = torch.as_tensor(total_norm)
-                    if not torch.isfinite(tn):
-                        self._epoch_grad_nan_inf_count += 1
-                    elif float(tn.item()) > float(self.max_grad_norm):
-                        self._epoch_grad_clip_norm_count += 1
+                    self._record_grad_norm_event(total_norm)
                 if self.max_grad_value is not None:
+                    # Record events analogous to norm-based clipping
+                    self._record_grad_value_event()
                     self.accelerator.clip_grad_value_(self.model.parameters(), self.max_grad_value)
             self.optimizer.step()
             if self.scheduler is not None:
@@ -226,6 +296,124 @@ class Trainer:
                 self.state.epoch + 1,
             )
 
+    # ------------------------------------------------------------------
+    # Logging utilities
+    # ------------------------------------------------------------------
+    def _aggregate_epoch_event_counts(self) -> tuple[int, int, int, int]:
+        """Aggregate per-epoch event counters across processes.
+
+        Returns a tuple of ints: (loss_nan_inf, grad_nan_inf, grad_clip_norm, grad_clip_value).
+        """
+        counts_local = torch.tensor(
+            [
+                self._epoch_loss_nan_inf_count,
+                self._epoch_grad_nan_inf_count,
+                self._epoch_grad_clip_norm_count,
+                self._epoch_grad_clip_value_count,
+            ],
+            device=self.accelerator.device,
+            dtype=torch.long,
+        )
+        if self.accelerator.num_processes > 1:
+            gathered = self.accelerator.gather(counts_local)
+            counts_all = gathered.view(-1, 4).sum(dim=0)
+        else:
+            counts_all = counts_local
+        return (
+            int(counts_all[0].item()),
+            int(counts_all[1].item()),
+            int(counts_all[2].item()),
+            int(counts_all[3].item()),
+        )
+
+    def _log_epoch_event_counts(self, counts: tuple[int, int, int, int]) -> None:
+        """Log aggregated per-epoch event counters to W&B and logger."""
+        if not self.accelerator.is_main_process:
+            return
+        loss_nan_inf_count, grad_nan_inf_count, grad_clip_norm_count, grad_clip_value_count = counts
+
+        if wandb.run is not None:
+            wandb.log(
+                {
+                    "train/events/loss_nan_or_inf_count": loss_nan_inf_count,
+                    "train/events/grad_nan_or_inf_count": grad_nan_inf_count,
+                    "train/events/grad_clip_norm_count": grad_clip_norm_count,
+                    "train/events/grad_clip_value_count": grad_clip_value_count,
+                },
+                step=self.state.step,
+            )
+
+        self.logger.info(
+            "Epoch %d | events: loss_nan_or_inf=%d, grad_nan_or_inf=%d, clip_norm=%d, clip_value=%d",
+            self.state.epoch + 1,
+            loss_nan_inf_count,
+            grad_nan_inf_count,
+            grad_clip_norm_count,
+            grad_clip_value_count,
+        )
+
+    def _log_epoch_train_summary(self, mean_loss: float, avg_step_time: float, epoch_time: float) -> None:
+        """Log final epoch training summary to both W&B and the standard logger."""
+        if not self.accelerator.is_main_process:
+            return
+        # W&B logging (mean loss + timing stats)
+        if wandb.run is not None:
+            wandb.log(
+                {
+                    f"train/avg_{self.criterion_name}_loss": mean_loss,
+                    "train/avg_step_time": avg_step_time,
+                    "train/epoch_time": epoch_time,
+                },
+                step=self.state.step,
+            )
+        # Classic logger summary
+        self.logger.info(
+            "Epoch %d | train/avg_%s_loss=%.6f | avg_step_time=%.4fs | epoch_time=%.2fs | step=%d",
+            self.state.epoch + 1,
+            self.criterion_name,
+            mean_loss,
+            avg_step_time,
+            epoch_time,
+            self.state.step,
+        )
+        self.logger.info("End train_epoch (epoch=%d)", self.state.epoch + 1)
+
+    # -------------------------------
+    # Validation logging helpers
+    # -------------------------------
+    def _aggregate_validation_mean(self, total_loss_local: float, num_batches_local: int) -> float:
+        """Aggregate per-process validation loss to a global mean.
+
+        Accepts the local process sum of losses and count of batches, reduces
+        across processes, and returns the global mean loss.
+        """
+        sum_tensor = torch.tensor([total_loss_local], device=self.accelerator.device, dtype=torch.float32)
+        cnt_tensor = torch.tensor([num_batches_local], device=self.accelerator.device, dtype=torch.long)
+        if self.accelerator.num_processes > 1:
+            sum_all = self.accelerator.gather(sum_tensor).sum()
+            cnt_all = self.accelerator.gather(cnt_tensor).sum()
+        else:
+            sum_all = sum_tensor[0]
+            cnt_all = cnt_tensor[0]
+        global_sum = float(sum_all.item())
+        global_count = max(int(cnt_all.item()), 1)
+        return global_sum / global_count
+
+    def _log_epoch_val_summary(self, mean_loss: float) -> None:
+        """Log final validation summary to both W&B and the standard logger."""
+        if not self.accelerator.is_main_process:
+            return
+        if wandb.run is not None:
+            wandb.log({f"val/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
+        self.logger.info(
+            "Epoch %d | val/avg_%s_loss=%.6f | step=%d",
+            self.state.epoch,
+            self.criterion_name,
+            mean_loss,
+            self.state.step,
+        )
+        self.logger.info("End run_evaluation (epoch=%d)", self.state.epoch)
+
     def train_epoch(
         self,
     ) -> float:
@@ -244,7 +432,8 @@ class Trainer:
         total_loss = 0.0
         epoch_start_time = time.time()
         start_step = self.state.step
-        disable = self.accelerator.is_main_process
+        # Show progress bar only on main process
+        disable = not self.accelerator.is_main_process
         progress_bar = tqdm(
             self.train_dataloader,
             disable=disable,
@@ -260,70 +449,13 @@ class Trainer:
         epoch_time = time.time() - epoch_start_time
         num_opt_steps = max(self.state.step - start_step, 1)
         avg_step_time = epoch_time / num_opt_steps
-        if wandb.run is not None and self.accelerator.is_main_process:
-            wandb.log({f"train/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
 
         # Aggregate event counters across processes (sum) and log
-        counts_local = torch.tensor(
-            [
-                self._epoch_loss_nan_inf_count,
-                self._epoch_grad_nan_inf_count,
-                self._epoch_grad_clip_norm_count,
-                self._epoch_grad_clip_value_count,
-            ],
-            device=self.accelerator.device,
-            dtype=torch.long,
-        )
-        if self.accelerator.num_processes > 1:
-            gathered = self.accelerator.gather(counts_local)
-            try:
-                counts_all = gathered.view(-1, 4).sum(dim=0)
-            except RuntimeError:
-                counts_all = gathered.reshape(-1, 4).sum(dim=0)
-        else:
-            counts_all = counts_local
-
-        if self.accelerator.is_main_process:
-            loss_nan_inf_count = int(counts_all[0].item())
-            grad_nan_inf_count = int(counts_all[1].item())
-            grad_clip_norm_count = int(counts_all[2].item())
-            grad_clip_value_count = int(counts_all[3].item())
-
-            if wandb.run is not None:
-                wandb.log(
-                    {
-                        "train/events/loss_nan_or_inf_count": loss_nan_inf_count,
-                        "train/events/grad_nan_or_inf_count": grad_nan_inf_count,
-                        "train/events/grad_clip_norm_count": grad_clip_norm_count,
-                        "train/events/grad_clip_value_count": grad_clip_value_count,
-                    },
-                    step=self.state.step,
-                )
-
-            self.logger.info(
-                "Epoch %d | events: loss_nan_or_inf=%d, grad_nan_or_inf=%d, clip_norm=%d, clip_value=%d",
-                self.state.epoch + 1,
-                loss_nan_inf_count,
-                grad_nan_inf_count,
-                grad_clip_norm_count,
-                grad_clip_value_count,
-            )
+        counts = self._aggregate_epoch_event_counts()
+        self._log_epoch_event_counts(counts)
 
         # Log final epoch training loss to the configured logger
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "Epoch %d | train/avg_%s_loss=%.6f | avg_step_time=%.4fs | epoch_time=%.2fs | step=%d",
-                self.state.epoch + 1,
-                self.criterion_name,
-                mean_loss,
-                avg_step_time,
-                epoch_time,
-                self.state.step,
-            )
-            self.logger.info(
-                "End train_epoch (epoch=%d)",
-                self.state.epoch + 1,
-            )
+        self._log_epoch_train_summary(mean_loss, avg_step_time, epoch_time)
         self.state.increment_epoch()
         return mean_loss
 
@@ -374,14 +506,6 @@ class Trainer:
                     )
                 return None
 
-        if self.val_dataloader is None:
-            if self.accelerator.is_main_process:
-                self.logger.info(
-                    "Skip run_evaluation (epoch=%d): no val_dataloader",
-                    self.state.epoch,
-                )
-            return None
-
         if self.accelerator.is_main_process:
             self.logger.info(
                 "Begin run_evaluation (epoch=%d, step=%d)",
@@ -394,7 +518,8 @@ class Trainer:
         total_loss_local = 0.0
         num_batches_local = 0
 
-        disable = self.accelerator.is_main_process
+        # Show progress bar only on main process
+        disable = not self.accelerator.is_main_process
         progress_bar = tqdm(
             self.val_dataloader,
             disable=disable,
@@ -409,44 +534,23 @@ class Trainer:
             mean_so_far = total_loss_local / max(num_batches_local, 1)
             progress_bar.set_postfix({f"{self.criterion_name}_loss": mean_so_far}, refresh=False)
 
-        # Aggregate across processes once at the end for efficiency
-        sum_tensor = torch.tensor([total_loss_local], device=self.accelerator.device, dtype=torch.float32)
-        cnt_tensor = torch.tensor([num_batches_local], device=self.accelerator.device, dtype=torch.long)
-        if self.accelerator.num_processes > 1:
-            sum_all = self.accelerator.gather(sum_tensor).sum()
-            cnt_all = self.accelerator.gather(cnt_tensor).sum()
-        else:
-            sum_all = sum_tensor
-            cnt_all = cnt_tensor
-
-        global_sum = float(sum_all.item())
-        global_count = int(cnt_all.item()) if cnt_all.numel() == 1 else int(cnt_all.sum().item())
-        mean_loss = global_sum / max(global_count, 1)
-
-        if wandb.run is not None and self.accelerator.is_main_process:
-            wandb.log({f"val/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
-
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "Epoch %d | val/avg_%s_loss=%.6f | step=%d",
-                self.state.epoch,
-                self.criterion_name,
-                mean_loss,
-                self.state.step,
-            )
-            self.logger.info(
-                "End run_evaluation (epoch=%d)",
-                self.state.epoch,
-            )
-
+        # Aggregate across processes and log validation summary
+        mean_loss = self._aggregate_validation_mean(total_loss_local, num_batches_local)
+        self._log_epoch_val_summary(mean_loss)
         return mean_loss
     
     # ------------------------------------------------------------------
     # Visualisation utilities
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def visualise(self) -> None:
-        pass
+    def run_visualisation(self) -> None:
+        """Load a small synthetic dataset for quick visualisation.
+
+        For now, this just instantiates a single synthetic video and logs
+        basic shape information. This is a lightweight placeholder that can be
+        extended to push frames or embeddings to W&B.
+        """
+
 
     # ------------------------------------------------------------------
     # Checkpoint utilities
@@ -461,8 +565,10 @@ class Trainer:
     def fit(self):
         if self.eval_first:
             self.run_evaluation()
+            self.run_visualisation()
         for _ in range(self.state.epoch, self.epochs):
             self.train_epoch()
+            self.run_visualisation()
             self.run_evaluation()
             self.save_checkpoint()
         

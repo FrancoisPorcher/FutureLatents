@@ -1,4 +1,5 @@
 inherits:
   - ../datasets/kinetics_400.yaml
+  - ../datasets/SyntheticBouncingShapes.yaml
   - ../backbones/dinov3.yaml
   - ../training/trainer_deterministic.yaml

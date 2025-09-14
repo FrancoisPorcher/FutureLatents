@@ -1,4 +1,5 @@
 inherits:
   - ../datasets/kinetics_400_cached.yaml
+  - ../datasets/SyntheticBouncingShapes.yaml
   - ../training/trainer_flow_matching.yaml
 backbone: null

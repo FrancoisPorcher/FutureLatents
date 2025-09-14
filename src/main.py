@@ -65,6 +65,9 @@ def main() -> None:
 
     train_dataset = build_dataset(config, split="train")
     val_dataset = build_dataset(config, split="val")
+    visualisation_dataset = build_dataset(config, split="visualisation")
+    
+    breakpoint()
 
     # In debug mode, limit dataset sizes to speed up iterations.
     if args.debug:
