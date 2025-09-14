@@ -345,4 +345,85 @@ class PredictorTransformer(nn.Module):
         return x
 
 
-__all__ = ["DiT", "PredictorTransformer"]
+class PredictorCrossBlock(nn.Module):
+    """Predictor block with self-attn, cross-attn, then MLP."""
+
+    def __init__(self, dim: int, num_heads: int, mlp_ratio: float = 4.0) -> None:
+        super().__init__()
+        self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
+        self.self_attn = MultiheadSelfAttention(dim, num_heads)
+        self.norm_cross = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
+        self.cross_attn = MultiheadCrossAttention(dim, num_heads)
+        self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
+        self.mlp = MLP(dim, int(dim * mlp_ratio))
+
+    def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+        # Self-attention over the input/target-query tokens
+        x = x + self.self_attn(self.norm1(x))
+        # Cross-attention attending the context tokens
+        x = x + self.cross_attn(self.norm_cross(x), context)
+        # Position-wise feed-forward
+        x = x + self.mlp(self.norm2(x))
+        return x
+
+
+class PredictorTransformerCrossAttention(nn.Module):
+    """Deterministic predictor that cross-attends to context tokens.
+
+    Expects two streams of tokens:
+      - ``context_latents``: conditioning tokens to attend to
+      - ``target_queries``: input tokens (same count as targets) that are
+        refined via self-attention, then cross-attention w.r.t. context.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        depth: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        gradient_checkpointing: bool = False,
+    ) -> None:
+        super().__init__()
+        self.gradient_checkpointing = gradient_checkpointing
+
+        # Project context and target-query tokens into a shared hidden space
+        self.context_mlp = nn.Sequential(
+            nn.LayerNorm(input_dim, elementwise_affine=False, eps=1e-6),
+            nn.Linear(input_dim, hidden_dim),
+        )
+        self.query_mlp = nn.Sequential(
+            nn.LayerNorm(input_dim, elementwise_affine=False, eps=1e-6),
+            nn.Linear(input_dim, hidden_dim),
+        )
+
+        self.blocks = nn.ModuleList(
+            [PredictorCrossBlock(hidden_dim, num_heads, mlp_ratio) for _ in range(depth)]
+        )
+        self.final_layer = PredictorFinalLayer(hidden_dim, input_dim)
+
+    def forward(
+        self, context_latents: torch.Tensor, target_queries: torch.Tensor
+    ) -> torch.Tensor:
+        """Predict target tokens from queries via cross-attention to context.
+
+        Args:
+            context_latents: (B, N_context, D)
+            target_queries:  (B, N_target,  D) – number of tokens equals targets
+        Returns:
+            Predicted tokens shaped (B, N_target, D)
+        """
+        context_tokens = self.context_mlp(context_latents)
+        x = self.query_mlp(target_queries)
+
+        for block in self.blocks:
+            if self.gradient_checkpointing:
+                x = checkpoint(block, x, context_tokens, use_reentrant=False)
+            else:
+                x = block(x, context_tokens)
+        x = self.final_layer(x)
+        return x
+
+
+__all__ = ["DiT", "PredictorTransformer", "PredictorTransformerCrossAttention"]

@@ -1,0 +1,33 @@
+wandb: True
+encoder_trainable: false
+trainer:
+  training:
+    learning_rate: 1e-5
+    weight_decay: 0.01
+    num_workers: 8
+    batch_size_per_gpu: 1
+    gradient_accumulation_steps: 1
+    find_unused_parameters: true
+    mixed_precision: fp16
+    max_grad_norm: 1.0
+    max_grad_value: null
+    epochs: 2
+    embedding_norm: l2
+    loss: l1
+    checkpoint_dir: checkpoints
+    save_every: 1
+  evaluation:
+    eval_every: 1
+    eval_first: false
+    batch_size_per_gpu: 1
+model:
+  type: deterministic_cross_attention
+  num_context_latents: 16
+  dit:
+    input_dim: 1024
+    hidden_dim: 1024
+    depth: 12
+    num_heads: 8
+    mlp_ratio: 4.0
+    gradient_checkpointing: false
+

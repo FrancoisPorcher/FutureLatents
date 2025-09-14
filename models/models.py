@@ -12,7 +12,7 @@ from einops import rearrange
 
 from .backbone import build_backbone
 
-from .DiT import DiT, PredictorTransformer
+from .DiT import DiT, PredictorTransformer, PredictorTransformerCrossAttention
 
 logger = logging.getLogger(__name__)
 
@@ -263,4 +263,46 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         yield from [m for m in [self.encoder, self.predictor] if m is not None]
 
 
-__all__ = ["LatentVideoBase", "FlowMatchingLatentVideoModel", "DeterministicLatentVideoModel"]
+class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
+    """Predict future latent tokens via cross-attention to context.
+
+    Uses ``PredictorTransformerCrossAttention`` which consumes both
+    context tokens and a set of target queries (one per target token).
+    """
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        super().__init__(config)
+        dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
+        self.predictor = PredictorTransformerCrossAttention(**dit_cfg)
+
+    def forward(self, batch: Dict[str, Any], return_norms: bool = False):
+        latents = self.encode_video_with_backbone(batch)  # [B, D, T, H, W]
+
+        latents, norms = self.norm_embeddings(latents)
+
+        context_latents, target_latents = self.split_latents(latents)
+
+        # Flatten tokens: [B, (T*H*W), D]
+        context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
+        target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
+
+        # Use zero-initialised queries with the same shape as targets.
+        # This provides a query slot per target token which is refined via
+        # self-attention and cross-attention over the context tokens.
+        target_queries = torch.zeros_like(target_latents)
+
+        prediction = self.predictor(context_latents, target_queries)
+        if return_norms:
+            return prediction, target_latents, norms
+        return prediction, target_latents
+
+    def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
+        yield from [m for m in [self.encoder, self.predictor] if m is not None]
+
+
+__all__ = [
+    "LatentVideoBase",
+    "FlowMatchingLatentVideoModel",
+    "DeterministicLatentVideoModel",
+    "DeterministicCrossAttentionLatentVideoModel",
+]

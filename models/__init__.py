@@ -1,7 +1,11 @@
 """Model package for FutureLatents."""
 
-from .DiT import DiT, PredictorTransformer
-from .models import FlowMatchingLatentVideoModel, DeterministicLatentVideoModel
+from .DiT import DiT, PredictorTransformer, PredictorTransformerCrossAttention
+from .models import (
+    FlowMatchingLatentVideoModel,
+    DeterministicLatentVideoModel,
+    DeterministicCrossAttentionLatentVideoModel,
+)
 
 
 def build_model(config):
@@ -11,6 +15,7 @@ def build_model(config):
     models = {
         "flow_matching": FlowMatchingLatentVideoModel,
         "deterministic": DeterministicLatentVideoModel,
+        "deterministic_cross_attention": DeterministicCrossAttentionLatentVideoModel,
     }
     try:
         model_cls = models[model_type]
@@ -22,7 +27,9 @@ def build_model(config):
 __all__ = [
     "DiT",
     "PredictorTransformer",
+    "PredictorTransformerCrossAttention",
     "FlowMatchingLatentVideoModel",
     "DeterministicLatentVideoModel",
+    "DeterministicCrossAttentionLatentVideoModel",
     "build_model",
 ]

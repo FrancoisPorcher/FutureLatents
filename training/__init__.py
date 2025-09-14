@@ -52,7 +52,11 @@ def build_trainer(
     """
 
     trainer_type = str(config.MODEL.TYPE).lower()
-    trainer_cls = DeterministicTrainer if trainer_type == "deterministic" else Trainer
+    trainer_cls = (
+        DeterministicTrainer
+        if trainer_type in {"deterministic", "deterministic_cross_attention"}
+        else Trainer
+    )
     return trainer_cls(
         model=model,
         optimizer=optimizer,
