@@ -17,22 +17,14 @@ _DATASETS = {
 
 def build_dataset(config: DictConfig, split: str = "train"):
     """Build a dataset according to the requested split.
+
+    Only handles the ``kinetics_400`` dataset and swaps the CSV path based on
+    the requested ``split``.
     """
-    s = str(split).lower()
-    # Minimal: only handle Kinetics-400 and select CSV by split
-    if s == "train":
-        config.DATASETS.KINETICS_400.PATHS.CSV = (
-            config.DATASETS.KINETICS_400.PATHS.TRAIN_CSV
-        )
-        return Kinetics400(config)
-    elif s in ("val", "visualisation"):
-        config.DATASETS.KINETICS_400.PATHS.CSV = (
-            config.DATASETS.KINETICS_400.PATHS.VAL_CSV
-        )
-        return Kinetics400(config)
+
+    dataset_cfg = config.DATASETS.KINETICS_400
+    if str(split).lower() == "train":
+        dataset_cfg.PATHS.CSV = dataset_cfg.PATHS.TRAIN_CSV
     else:
-        # Minimal behaviour: default to validation split
-        config.DATASETS.KINETICS_400.PATHS.CSV = (
-            config.DATASETS.KINETICS_400.PATHS.VAL_CSV
-        )
-        return Kinetics400(config)
+        dataset_cfg.PATHS.CSV = dataset_cfg.PATHS.VAL_CSV
+    return _DATASETS["kinetics_400"](config)
