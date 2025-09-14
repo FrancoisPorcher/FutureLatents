@@ -47,7 +47,12 @@ def main() -> None:
         ],
     )
     
-    torch.cuda.set_device(accelerator.local_process_index)
+    if accelerator.device.type == "cuda":
+        torch.cuda.set_device(accelerator.device)
+    
+    with accelerator.main_process_first():
+        model = build_model(config)
+    accelerator.wait_for_everyone()
 
     # ------------------------------------------------------------------
     # Experiment directories
