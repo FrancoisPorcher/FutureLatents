@@ -59,16 +59,8 @@ def main() -> None:
         shutil.rmtree(experiment_root)
     accelerator.wait_for_everyone()
 
-    # Define directory paths for later use
-    checkpoint_dir = experiment_root / "checkpoints"
-    logs_dir = experiment_root / "logs"
-    config_dir = experiment_root / "config"
-    slurm_dir = experiment_root / "slurm"
-    dump_dir = experiment_root / "dump"
-
-    # Create folder structure via helper, unless debug.
-    if accelerator.is_main_process:
-        make_experiment_dirs(experiment_root)
+    # Create and retrieve standard experiment directories
+    dirs = make_experiment_dirs(experiment_root)
     accelerator.wait_for_everyone()
 
     train_dataset = build_dataset(config, split="train")
@@ -76,8 +68,8 @@ def main() -> None:
 
     # In debug mode, limit dataset sizes to speed up iterations.
     if args.debug:
-        DEBUG_TRAIN_STEPS = 50
-        DEBUG_VAL_STEPS = 50
+        DEBUG_TRAIN_STEPS = 20
+        DEBUG_VAL_STEPS = 20
         train_dataset = torch.utils.data.Subset(train_dataset, range(DEBUG_TRAIN_STEPS))
         val_dataset = torch.utils.data.Subset(val_dataset, range(DEBUG_VAL_STEPS))
 
@@ -107,15 +99,13 @@ def main() -> None:
         batch_size=eval_batch_size,
     )
 
-    log_file = logs_dir / "train.log"
+    log_file = dirs.logs_dir / "train.log"
     if accelerator.is_main_process:
-        if args.debug:
-            logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler()])
-        else:
-            logging.basicConfig(
-                level=logging.INFO,
-                handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
-            )
+        # Always log to both console and file, regardless of debug mode
+        logging.basicConfig(
+            level=logging.INFO,
+            handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
+        )
     else:
         logging.basicConfig(level=logging.ERROR)
     logger = logging.getLogger(__name__)
@@ -132,7 +122,7 @@ def main() -> None:
         model.count_parameters()
         resolved_config = print_config(config)
         logger.info(resolved_config)
-        resolved_config_path = config_dir / "resolved_config.yaml"
+        resolved_config_path = dirs.config_dir / "resolved_config.yaml"
         resolved_config_path.write_text(resolved_config)
         if use_wandb:
             wandb.init(project="FutureLatent", name=config_name)
@@ -148,13 +138,13 @@ def main() -> None:
         model=model,
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
-        checkpoint_dir=checkpoint_dir,
+        checkpoint_dir=dirs.checkpoint_dir,
         optimizer=optimizer,
         scheduler=scheduler,
         accelerator=accelerator,
         logger=logger,
         debug=args.debug,
-        dump_dir=dump_dir
+        dump_dir=dirs.dump_dir
     )
 
     trainer.fit()

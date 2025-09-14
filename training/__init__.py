@@ -15,8 +15,8 @@ from .trainer import (
     DeterministicTrainer,
     Trainer,
     TrainState,
-    get_criterion,
 )
+from .losses import get_criterion
 
 
 def build_trainer(

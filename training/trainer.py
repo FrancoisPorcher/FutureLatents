@@ -15,22 +15,11 @@ import contextlib
 import time
 
 import torch
-import torch.nn.functional as F
 from accelerate import Accelerator
 from accelerate.utils import tqdm
 import logging
 import wandb
-
-
-def get_criterion(name: str) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
-    """Return a loss function for ``name``."""
-
-    loss_map = {"mse": F.mse_loss, "l1": F.l1_loss}
-    criterion = loss_map.get(name.lower())
-    if criterion is None:  # pragma: no cover - config error
-        raise ValueError("LOSS must be 'mse' or 'l1'")
-    return criterion
-
+from .losses import get_criterion
 
 @dataclass
 class TrainState:
@@ -128,7 +117,12 @@ class Trainer:
         self.criterion_name = str(config.TRAINING.LOSS).lower()
         self.criterion = get_criterion(self.criterion_name)
         self.save_every = int(config.TRAINING.SAVE_EVERY)
-        
+
+        # Event counters (reset each epoch)
+        self._epoch_loss_nan_inf_count: int = 0
+        self._epoch_grad_nan_inf_count: int = 0
+        self._epoch_grad_clip_norm_count: int = 0
+        self._epoch_grad_clip_value_count: int = 0
 
         if self.max_grad_norm is None and self.max_grad_value is None:
             raise ValueError(
@@ -142,35 +136,56 @@ class Trainer:
     # ------------------------------------------------------------------
     # Training utilities
     # ------------------------------------------------------------------
+    def check_loss_is_finite(self, loss: torch.Tensor) -> bool:
+        """Check whether ``loss`` is finite and log if not.
+
+        Increments ``_epoch_loss_nan_inf_count`` and logs an error on the main
+        process when the loss contains NaN/Inf. Returns ``True`` when finite,
+        otherwise ``False``.
+        """
+        if not torch.isfinite(loss):
+            self._epoch_loss_nan_inf_count += 1
+            if self.accelerator.is_main_process:
+                self.logger.error(
+                    "Step %d (micro %d): NaN/Inf loss detected: %s",
+                    self.state.step,
+                    self.state.micro_step,
+                    str(loss.detach().item() if loss.numel() == 1 else "tensor"),
+                )
+            return False
+        return True
+
     def train_step(self, batch: dict) -> float:
         """Perform a single optimisation step."""
-
-        self.model.train()
-        if self.accelerator is None:
-            raise NotImplementedError(
-                "Trainer.train_step() requires an accelerator."
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "Begin train_step (epoch=%d, step=%d, micro_step=%d)",
+                self.state.epoch,
+                self.state.step,
+                self.state.micro_step + 1,  # increment happens just below
             )
+        self.model.train()
         self.state.increment_micro_step()
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 outputs = self.model(batch, return_norms=self.debug)
-                if self.debug:
-                    prediction, target, norms = outputs
-                else:
-                    prediction, target = outputs
-                    norms = None
+                prediction, target, norms = outputs
                 loss = self.criterion(prediction, target)
+            self.check_loss_is_finite(loss)
             self.accelerator.backward(loss)
-            # Only clip gradients on real optimisation steps (post accumulation)
             if self.accelerator.sync_gradients:
                 if self.max_grad_norm is not None:
-                    self.accelerator.clip_grad_norm_(
+                    total_norm = self.accelerator.clip_grad_norm_(
                         self.model.parameters(), self.max_grad_norm
                     )
+                    # Increment only when clipping actually occurred
+                    tn = torch.as_tensor(total_norm)
+                    if not torch.isfinite(tn):
+                        self._epoch_grad_nan_inf_count += 1
+                    elif float(tn.item()) > float(self.max_grad_norm):
+                        self._epoch_grad_clip_norm_count += 1
                 if self.max_grad_value is not None:
-                    self.accelerator.clip_grad_value_(
-                        self.model.parameters(), self.max_grad_value
-                    )
+                    self.accelerator.clip_grad_value_(self.model.parameters(), self.max_grad_value)
             self.optimizer.step()
             if self.scheduler is not None:
                 self.scheduler.step()
@@ -189,20 +204,47 @@ class Trainer:
                 )
             self.state.increment_step()
         self.state.update_wall_time()
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "End train_step (epoch=%d, step=%d, micro_step=%d, loss=%.6f)",
+                self.state.epoch,
+                self.state.step,
+                self.state.micro_step,
+                float(loss_value.item()),
+            )
         return loss_value.item()
 
-
+    def reset_epoch_counters(self) -> None:
+        """Reset per-epoch event counters."""
+        self._epoch_loss_nan_inf_count = 0
+        self._epoch_grad_nan_inf_count = 0
+        self._epoch_grad_clip_norm_count = 0
+        self._epoch_grad_clip_value_count = 0
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "Reset epoch counters (epoch=%d)",
+                self.state.epoch + 1,
+            )
 
     def train_epoch(
         self,
     ) -> float:
         """Iterate over ``dataloader`` once, log metrics and return the mean loss."""
 
+        # Reset epoch counters
+        self.reset_epoch_counters()
+
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Begin train_epoch (epoch=%d, start_step=%d)",
+                self.state.epoch + 1,
+                self.state.step,
+            )
+
         total_loss = 0.0
-        disable = (
-            self.accelerator is not None
-            and not self.accelerator.is_main_process
-        )
+        epoch_start_time = time.time()
+        start_step = self.state.step
+        disable = self.accelerator.is_main_process
         progress_bar = tqdm(
             self.train_dataloader,
             disable=disable,
@@ -214,21 +256,190 @@ class Trainer:
                 {f"{self.criterion_name}_loss": total_loss / max(progress_bar.n, 1)},
                 refresh=False,
             )
-            if self.debug and progress_bar.n >= 10:
-                break
         mean_loss = total_loss / max(progress_bar.n, 1)
-        if wandb.run is not None and (
-            self.accelerator is None or self.accelerator.is_main_process
-        ):
+        epoch_time = time.time() - epoch_start_time
+        num_opt_steps = max(self.state.step - start_step, 1)
+        avg_step_time = epoch_time / num_opt_steps
+        if wandb.run is not None and self.accelerator.is_main_process:
             wandb.log({f"train/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
+
+        # Aggregate event counters across processes (sum) and log
+        counts_local = torch.tensor(
+            [
+                self._epoch_loss_nan_inf_count,
+                self._epoch_grad_nan_inf_count,
+                self._epoch_grad_clip_norm_count,
+                self._epoch_grad_clip_value_count,
+            ],
+            device=self.accelerator.device,
+            dtype=torch.long,
+        )
+        if self.accelerator.num_processes > 1:
+            gathered = self.accelerator.gather(counts_local)
+            try:
+                counts_all = gathered.view(-1, 4).sum(dim=0)
+            except RuntimeError:
+                counts_all = gathered.reshape(-1, 4).sum(dim=0)
+        else:
+            counts_all = counts_local
+
+        if self.accelerator.is_main_process:
+            loss_nan_inf_count = int(counts_all[0].item())
+            grad_nan_inf_count = int(counts_all[1].item())
+            grad_clip_norm_count = int(counts_all[2].item())
+            grad_clip_value_count = int(counts_all[3].item())
+
+            if wandb.run is not None:
+                wandb.log(
+                    {
+                        "train/events/loss_nan_or_inf_count": loss_nan_inf_count,
+                        "train/events/grad_nan_or_inf_count": grad_nan_inf_count,
+                        "train/events/grad_clip_norm_count": grad_clip_norm_count,
+                        "train/events/grad_clip_value_count": grad_clip_value_count,
+                    },
+                    step=self.state.step,
+                )
+
+            self.logger.info(
+                "Epoch %d | events: loss_nan_or_inf=%d, grad_nan_or_inf=%d, clip_norm=%d, clip_value=%d",
+                self.state.epoch + 1,
+                loss_nan_inf_count,
+                grad_nan_inf_count,
+                grad_clip_norm_count,
+                grad_clip_value_count,
+            )
+
+        # Log final epoch training loss to the configured logger
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Epoch %d | train/avg_%s_loss=%.6f | avg_step_time=%.4fs | epoch_time=%.2fs | step=%d",
+                self.state.epoch + 1,
+                self.criterion_name,
+                mean_loss,
+                avg_step_time,
+                epoch_time,
+                self.state.step,
+            )
+            self.logger.info(
+                "End train_epoch (epoch=%d)",
+                self.state.epoch + 1,
+            )
+        self.state.increment_epoch()
         return mean_loss
 
     # ------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def run_evaluation():
-        pass
+    def run_evaluation_step(self, batch: dict) -> float:
+        """Compute loss for a single validation batch.
+
+        Returns the scalar loss value (local process only; no gathering).
+        """
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "Begin run_evaluation_step (epoch=%d)",
+                self.state.epoch,
+            )
+        self.model.eval()
+        with self.accelerator.autocast():
+            outputs = self.model(batch, return_norms=False)
+            prediction, target = outputs
+            loss = self.criterion(prediction, target)
+        # Return plain float for lightweight local accumulation
+        value = float(loss.detach().item())
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "End run_evaluation_step (epoch=%d, loss=%.6f)",
+                self.state.epoch,
+                value,
+            )
+        return value
+    
+    @torch.no_grad()
+    def run_evaluation(self) -> Optional[float]:
+        """Run evaluation over the validation dataloader and log mean loss.
+
+        Efficiently aggregates loss across processes once at the end.
+        Returns the global mean loss (or ``None`` if evaluation is skipped).
+        """
+        # Respect evaluation cadence if configured
+        if self.eval_every is not None and self.eval_every > 1:
+            if (self.state.epoch % self.eval_every) != 0:
+                if self.accelerator.is_main_process:
+                    self.logger.info(
+                        "Skip run_evaluation (epoch=%d): eval_every=%d",
+                        self.state.epoch,
+                        self.eval_every,
+                    )
+                return None
+
+        if self.val_dataloader is None:
+            if self.accelerator.is_main_process:
+                self.logger.info(
+                    "Skip run_evaluation (epoch=%d): no val_dataloader",
+                    self.state.epoch,
+                )
+            return None
+
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Begin run_evaluation (epoch=%d, step=%d)",
+                self.state.epoch,
+                self.state.step,
+            )
+
+        self.model.eval()
+
+        total_loss_local = 0.0
+        num_batches_local = 0
+
+        disable = self.accelerator.is_main_process
+        progress_bar = tqdm(
+            self.val_dataloader,
+            disable=disable,
+            desc=f"Eval {self.state.epoch}",
+        )
+
+        for batch in progress_bar:
+            batch_loss = self.run_evaluation_step(batch)
+            total_loss_local += batch_loss
+            num_batches_local += 1
+            # Lightweight live display on the progress bar
+            mean_so_far = total_loss_local / max(num_batches_local, 1)
+            progress_bar.set_postfix({f"{self.criterion_name}_loss": mean_so_far}, refresh=False)
+
+        # Aggregate across processes once at the end for efficiency
+        sum_tensor = torch.tensor([total_loss_local], device=self.accelerator.device, dtype=torch.float32)
+        cnt_tensor = torch.tensor([num_batches_local], device=self.accelerator.device, dtype=torch.long)
+        if self.accelerator.num_processes > 1:
+            sum_all = self.accelerator.gather(sum_tensor).sum()
+            cnt_all = self.accelerator.gather(cnt_tensor).sum()
+        else:
+            sum_all = sum_tensor
+            cnt_all = cnt_tensor
+
+        global_sum = float(sum_all.item())
+        global_count = int(cnt_all.item()) if cnt_all.numel() == 1 else int(cnt_all.sum().item())
+        mean_loss = global_sum / max(global_count, 1)
+
+        if wandb.run is not None and self.accelerator.is_main_process:
+            wandb.log({f"val/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
+
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Epoch %d | val/avg_%s_loss=%.6f | step=%d",
+                self.state.epoch,
+                self.criterion_name,
+                mean_loss,
+                self.state.step,
+            )
+            self.logger.info(
+                "End run_evaluation (epoch=%d)",
+                self.state.epoch,
+            )
+
+        return mean_loss
     
     # ------------------------------------------------------------------
     # Visualisation utilities
@@ -252,10 +463,9 @@ class Trainer:
             self.run_evaluation()
         for _ in range(self.state.epoch, self.epochs):
             self.train_epoch()
-            self.state.increment_epoch()
             self.run_evaluation()
             self.save_checkpoint()
-        self.run_evaluation()
+        
             
 class DeterministicTrainer(Trainer):
     """Trainer variant for deterministic models."""
@@ -289,4 +499,4 @@ class DeterministicTrainer(Trainer):
         )
 
 
-__all__ = ["Trainer", "TrainState", "DeterministicTrainer", "get_criterion"]
+__all__ = ["Trainer", "TrainState", "DeterministicTrainer"]
