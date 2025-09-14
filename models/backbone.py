@@ -30,6 +30,11 @@ def build_backbone(backbone_cfg: Any) -> Tuple[Any, Any]:
                 dist.barrier()
                 return obj
             dist.barrier()
+            # Ensure non-zero ranks only read from the local cache to
+            # avoid race conditions when multiple processes attempt to
+            # download the same weights simultaneously.
+            kwargs = dict(kwargs)
+            kwargs.setdefault("local_files_only", True)
             return fn(*args, **kwargs)
         return fn(*args, **kwargs)
 
