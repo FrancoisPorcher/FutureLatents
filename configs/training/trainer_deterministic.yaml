@@ -18,7 +18,7 @@ trainer:
     save_every: 1
   evaluation:
     eval_every: 1
-    eval_first: false
+    eval_first: true
     batch_size_per_gpu: 1
 model:
   type: deterministic

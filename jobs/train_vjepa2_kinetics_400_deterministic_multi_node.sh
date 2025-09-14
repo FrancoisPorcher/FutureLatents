@@ -5,8 +5,8 @@
 #SBATCH --gpus-per-node=8
 #SBATCH --time=48:00:00
 #SBATCH --partition=learnfair
-#SBATCH --output=/private/home/francoisporcher/FutureLatents/experiment/%x/slurm/%x_%j.out
-#SBATCH --error=/private/home/francoisporcher/FutureLatents/experiment/%x/slurm/%x_%j.err
+#SBATCH --output=/private/home/francoisporcher/FutureLatents/slurm_logs/%x/%x_%j.out
+#SBATCH --error=/private/home/francoisporcher/FutureLatents/slurm_logs/%x/%x_%j.err
 
 set -e
 
@@ -15,7 +15,7 @@ ROOT=/private/home/francoisporcher/FutureLatents
 CONFIG_PATH=configs/references/vjepa2_kinetics_400_deterministic.yaml
 CONFIG_NAME=$(basename "$CONFIG_PATH" .yaml)
 EXPERIMENT_DIR="$ROOT/experiment/$CONFIG_NAME"
-SLURM_LOG_DIR="$EXPERIMENT_DIR/slurm"
+SLURM_LOG_DIR="$ROOT/slurm_logs/$CONFIG_NAME"
 mkdir -p "$SLURM_LOG_DIR"
 
 cd "$ROOT"

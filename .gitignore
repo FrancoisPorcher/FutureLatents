@@ -23,6 +23,9 @@ venv/
 # Experiment outputs
 /experiment/
 
+# Slurm logs
+/slurm_logs/
+
 # IDEs and editors
 .vscode/
 .idea/

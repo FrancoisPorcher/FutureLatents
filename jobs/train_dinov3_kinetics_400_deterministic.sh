@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=vjepa2_kinetics_400_deterministic
+#SBATCH --job-name=dinov3_kinetics_400_deterministic
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=8
 #SBATCH --gpus-per-node=8
@@ -9,7 +9,7 @@
 #SBATCH --error=/private/home/francoisporcher/FutureLatents/slurm_logs/%x/%x_%j.err
 
 ROOT=/private/home/francoisporcher/FutureLatents
-CONFIG_PATH=configs/references/vjepa2_kinetics_400_deterministic.yaml
+CONFIG_PATH=configs/references/dinov3_kinetics_400_deterministic.yaml
 CONFIG_NAME=$(basename "$CONFIG_PATH" .yaml)
 EXPERIMENT_DIR="$ROOT/experiment/$CONFIG_NAME"
 SLURM_LOG_DIR="$ROOT/slurm_logs/$CONFIG_NAME"
