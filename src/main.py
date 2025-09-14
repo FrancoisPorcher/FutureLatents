@@ -46,6 +46,8 @@ def main() -> None:
             )
         ],
     )
+    
+    torch.cuda.set_device(accelerator.local_process_index)
 
     # ------------------------------------------------------------------
     # Experiment directories

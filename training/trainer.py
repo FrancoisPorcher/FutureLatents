@@ -21,6 +21,11 @@ import logging
 import wandb
 from einops import rearrange
 from .losses import get_criterion
+from utils.video import (
+    convert_video_tensor_to_mp4,
+    save_mp4_video,
+    save_video_tensor,
+)
 
 @dataclass
 class TrainState:
@@ -160,10 +165,6 @@ class Trainer:
         self._epoch_grad_clip_norm_count: int = 0
         self._epoch_grad_clip_value_count: int = 0
 
-        if self.max_grad_norm is None and self.max_grad_value is None:
-            raise ValueError(
-                "Either MAX_GRAD_NORM or MAX_GRAD_VALUE must be specified in the config"
-            )
         if self.max_grad_norm is not None and self.max_grad_value is not None:
             raise ValueError(
                 "Only one of MAX_GRAD_NORM or MAX_GRAD_VALUE may be specified"
@@ -244,7 +245,10 @@ class Trainer:
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 outputs = self.model(batch, return_norms=self.debug)
-                prediction, target, norms = outputs
+                if self.debug:
+                    prediction, target, norms = outputs
+                else:
+                    prediction, target = outputs
                 loss = self.criterion(prediction, target)
             self.check_loss_is_finite(loss)
             self.accelerator.backward(loss)
@@ -556,88 +560,31 @@ class Trainer:
         if not self.accelerator.is_main_process:
             return
         self.model.eval()
+        # Silence Matplotlib animation INFO logs (only show our save messages)
+        mpl_logger = logging.getLogger("matplotlib.animation")
+        _prev_mpl_level = mpl_logger.level
+        mpl_logger.setLevel(logging.WARNING)
         num_saved = 0
-        for i, batch in enumerate(self.visualisation_dataloader):
-            video_tensor = batch["video"]
-            video_to_save = video_tensor.detach().cpu()
-            out_path = self.dump_dir / f"video_tensor_bouncing_shapes_epoch_{self.state.epoch:02d}_batch{i:02d}.pt"
-            torch.save(video_to_save, out_path)
-            num_saved += 1
-            # Per-file save log mirrors step-level debug verbosity used elsewhere
-            self.logger.debug(
-                "Saved visualisation (epoch=%d, batch=%d) -> %s [shape=%s]",
-                self.state.epoch,
-                i,
-                str(out_path),
-                str(tuple(video_to_save.shape)),
-            )
+        try:
+            for i, batch in enumerate(self.visualisation_dataloader):
+                video_tensor = batch["video"]
+                video_to_save = video_tensor.detach().cpu()
+                out_path = self.dump_dir / f"video_tensor_bouncing_shapes_epoch_{self.state.epoch:02d}_batch{i:02d}.pt"
 
-            # Also export an MP4 preview next to the tensor, if ffmpeg is available
-            try:
-                import shutil
-                import matplotlib  # import here to avoid global backend changes
-                matplotlib.use("Agg", force=True)  # headless backend for file writing
-                import matplotlib.pyplot as plt
-                from matplotlib import animation
-                import numpy as np
+                # Save tensor and log inside utility
+                save_video_tensor(video_to_save, out_path, logger=self.logger)
+                num_saved += 1
 
-                # Check ffmpeg availability early for clearer logs
-                if shutil.which("ffmpeg") is None:
-                    self.logger.warning(
-                        "ffmpeg not found in PATH; skipping MP4 export for %s",
-                        str(out_path),
-                    )
-                else:
-                    # Handle both [T,C,H,W] and [B,T,C,H,W]
-                    vt = video_to_save
-                    if vt.dim() == 4:
-                        vt = vt.unsqueeze(0)  # [1,T,C,H,W]
-                    if vt.dim() != 5:
-                        raise ValueError(f"Unexpected video dims: {vt.dim()} (expected 4 or 5)")
+                # Convert to frames and write MP4(s), with logging inside utilities
+                frames_per_sample, fps = convert_video_tensor_to_mp4(video_to_save)
+                save_mp4_video(frames_per_sample, out_path, fps=fps, logger=self.logger)
 
-                    bsz = vt.shape[0]
-                    for b in range(bsz):
-                        single = vt[b]  # [T,C,H,W]
-                        # Prepare frames: [T,C,H,W] -> [T,H,W,C]
-                        frames = single.permute(0, 2, 3, 1).contiguous().numpy()
-
-                        # Build figure once and stream frames to writer (memory efficient)
-                        fig, ax = plt.subplots()
-                        im = ax.imshow(frames[0])
-                        ax.axis("off")
-
-                        fps = 10  # default preview rate
-                        writer = animation.FFMpegWriter(
-                            fps=fps,
-                            codec="libx264",
-                            bitrate=2000,
-                            extra_args=["-pix_fmt", "yuv420p"],
-                        )
-
-                        if bsz == 1:
-                            mp4_path = out_path.with_suffix(".mp4")
-                        else:
-                            mp4_path = out_path.parent / f"{out_path.stem}_sample{b:02d}.mp4"
-                        with writer.saving(fig, str(mp4_path), dpi=100):
-                            for f in frames:
-                                im.set_data(f)
-                                writer.grab_frame()
-                        plt.close(fig)
-                        self.logger.debug(
-                            "Saved MP4 preview -> %s (fps=%d)",
-                            str(mp4_path),
-                            fps,
-                        )
-            except Exception as e:  # noqa: BLE001
-                # Keep training robust if video export fails for any reason
-                self.logger.warning(
-                    "Failed to export MP4 preview for %s: %s",
-                    str(out_path),
-                    str(e),
-                )
             with self.accelerator.autocast():
                 outputs = self.model(batch, return_norms=False)
                 prediction, target = outputs
+        finally:
+            # Restore previous Matplotlib animation logger level
+            mpl_logger.setLevel(_prev_mpl_level)
         if self.accelerator.is_main_process:
             self.logger.info(
                 "End run_visualisation (epoch=%d, files=%d)",
