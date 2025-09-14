@@ -1,9 +1,0 @@
-datasets:
-  synthetic_bouncing_shapes:
-    n_frame: 64
-    size: 256
-    square_size: 64
-    square_init: [16.0, 32.0]
-    square_vel: [3.0, 2.0]
-    disk_radius: 24
-

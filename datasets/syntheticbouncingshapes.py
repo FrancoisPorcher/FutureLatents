@@ -1,6 +1,6 @@
 """Synthetic video dataset: bouncing square + circular disk.
 
-Generates a single video on-the-fly with two moving shapes:
+Generates videos on-the-fly with two moving shapes:
 - a red square bouncing elastically on the image borders
 - a blue disk moving along a circular trajectory
 
@@ -9,7 +9,6 @@ Frames are returned as a uint8 tensor shaped [T, C, H, W].
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Dict, Any
 
 import numpy as np
@@ -18,68 +17,54 @@ from torch.utils.data import Dataset
 from PIL import Image, ImageDraw
 
 
-@dataclass
-class SyntheticConfig:
-    n_frame: int = 64
-    size: int = 256
-    square_size: int = 64
-    square_init: tuple[float, float] = (16.0, 32.0)
-    square_vel: tuple[float, float] = (3.0, 2.0)
-    disk_radius: int = 24
-
-
 class SyntheticBouncingShapes(Dataset):
-    """Dataset producing a single synthetic video.
+    """Dataset producing synthetic videos from config.
 
-    Parameters
-    ----------
-    n_frame: int
-        Number of frames to generate.
-    size: int
-        Height and width of each frame in pixels.
-    square_size: int
-        Edge length of the bouncing square.
-    square_init: tuple[float, float]
-        Initial (x, y) position of the square's top-left corner.
-    square_vel: tuple[float, float]
-        Velocity (vx, vy) of the square in pixels per frame.
-    disk_radius: int
-        Radius of the disk following a circular path.
+    Mirrors the config-driven pattern used in ``Kinetics400``: pass a
+    dataset-specific config object and read parameters from it.
+    Expected config keys (after uppercasing by the loader):
+    - ``N_FRAME``: number of frames
+    - ``LENGTH``: number of samples to expose via ``__len__``
+    - ``IMAGE_SIZE``: height/width in pixels
+    - ``SQUARE_SIZE``: edge length of the square
+    - ``SQUARE_INIT``: [x0, y0] top-left initial position (floats)
+    - ``SQUARE_VEL``: [vx, vy] velocity in px/frame (floats)
+    - ``DISK_RADIUS``: radius of the disk
     """
 
-    def __init__(
-        self,
-        n_frame: int = 64,
-        size: int = 256,
-        square_size: int = 64,
-        square_init: tuple[float, float] = (16.0, 32.0),
-        square_vel: tuple[float, float] = (3.0, 2.0),
-        disk_radius: int = 24,
-    ) -> None:
-        super().__init__()
-        self.cfg = SyntheticConfig(
-            n_frame=n_frame,
-            size=size,
-            square_size=square_size,
-            square_init=square_init,
-            square_vel=square_vel,
-            disk_radius=disk_radius,
-        )
+    def __init__(self, config) -> None:
+        self.config = config
 
-        # Pre-generate once to keep __getitem__ lightweight
-        self._video = self._generate_video()
+        # Read parameters from config (following kinetics_400 style)
+        self.n_frame = int(config.N_FRAME)
+        # Dataset length is configurable; default to 4 if unspecified
+        self.length = int(getattr(config, "LENGTH", 4))
+        self.image_size = int(config.IMAGE_SIZE)
+        self.square_size = int(config.SQUARE_SIZE)
+        # Lists from YAML become ListConfig -> cast to floats
+        self.square_init = (
+            float(config.SQUARE_INIT[0]),
+            float(config.SQUARE_INIT[1]),
+        )
+        self.square_vel = (
+            float(config.SQUARE_VEL[0]),
+            float(config.SQUARE_VEL[1]),
+        )
+        self.disk_radius = int(config.DISK_RADIUS)
+
+        # Randomness source: use torch.Generator for reproducibility if desired
+        self._rng = np.random.RandomState()
 
     def __len__(self) -> int:
-        # Single custom video for now
-        return 1
+        return self.length
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        # Return a clone to avoid accidental in-place edits by callers
-        video = self._video.clone()
+        # Generate a fresh random sample each time
+        video = self._generate_video_random()
         t, c, h, w = video.shape
         return {
             "video": video,               # [T, C, H, W] uint8
-            "index": 0,
+            "index": idx,
             "label": "synthetic_bounce_circle",
             "video_path": "synthetic://bouncing_square_circle",
             "n_frames_original_video": t,
@@ -93,19 +78,23 @@ class SyntheticBouncingShapes(Dataset):
     # ---------------------------
     # Generation helpers
     # ---------------------------
-    def _generate_video(self) -> torch.Tensor:
-        T = int(self.cfg.n_frame)
-        size = int(self.cfg.size)
-        sq = int(self.cfg.square_size)
-        r = int(self.cfg.disk_radius)
+    def _generate_video_random(self) -> torch.Tensor:
+        T = self.n_frame
+        size = self.image_size
+        sq = self.square_size
+        r = self.disk_radius
 
-        x, y = float(self.cfg.square_init[0]), float(self.cfg.square_init[1])
-        vx, vy = float(self.cfg.square_vel[0]), float(self.cfg.square_vel[1])
+        # Sample random initial square position uniformly in the valid range
         xmin, ymin = 0.0, 0.0
         xmax, ymax = float(size - sq), float(size - sq)
+        x = float(self._rng.uniform(xmin, xmax))
+        y = float(self._rng.uniform(ymin, ymax))
+        vx, vy = self.square_vel
 
         cx0, cy0 = size / 2.0, size / 2.0
         R = (size / 2.0) - r - 8.0  # keep disk within borders
+        # Random initial phase for the circular trajectory
+        theta0 = float(self._rng.uniform(0.0, 2 * np.pi))
 
         frames: list[Image.Image] = []
         for t in range(T):
@@ -134,7 +123,7 @@ class SyntheticBouncingShapes(Dataset):
             draw.rectangle([xi, yi, xi + sq, yi + sq], fill=(200, 50, 50))
 
             # Disk along circular trajectory
-            theta = 2 * np.pi * (t / T)
+            theta = theta0 + 2 * np.pi * (t / T)
             cx = int(round(cx0 + R * np.cos(theta)))
             cy = int(round(cy0 + R * np.sin(theta)))
             draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(50, 180, 250))
@@ -148,4 +137,3 @@ class SyntheticBouncingShapes(Dataset):
 
 
 __all__ = ["SyntheticBouncingShapes"]
-

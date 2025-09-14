@@ -1,0 +1,12 @@
+datasets:
+  visualisation:
+    name: synthetic_bouncing_shapes
+    synthetic_bouncing_shapes:
+      length: 4
+      n_frame: 64
+      stride: 2
+      image_size: 256
+      square_size: 64
+      square_init: [16.0, 32.0]
+      square_vel: [3.0, 2.0]
+      disk_radius: 24

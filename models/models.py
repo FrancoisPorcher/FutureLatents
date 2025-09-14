@@ -78,6 +78,9 @@ class LatentVideoBase(nn.Module):
             raise ValueError("`video` provided but no encoder is initialised")
         processed = self.preprocessor(inputs["video"], return_tensors="pt")
         video = processed["pixel_values_videos"]  # type: ignore[index]
+        # Match encoder device/dtype to avoid AMP dtype mismatch
+        enc_param = next(self.encoder.parameters())
+        video = video.to(device=enc_param.device, dtype=enc_param.dtype, non_blocking=True)
         # Keep (T,H,W) spatial-temporal structure in the output if supported
         return self.encoder.get_vision_features(video)
 
@@ -110,6 +113,11 @@ class LatentVideoBase(nn.Module):
         frames = rearrange(video, "b t c h w -> (b t) c h w")
         processed = self.preprocessor(images=frames, return_tensors="pt")
         pixel_values = processed["pixel_values"]
+
+        # Ensure inputs match the encoder's device and dtype to avoid
+        # mixed-precision dtype mismatches under autocast.
+        enc_param = next(self.encoder.parameters())
+        pixel_values = pixel_values.to(device=enc_param.device, dtype=enc_param.dtype, non_blocking=True)
 
         with torch.inference_mode():
             outputs = self.encoder(pixel_values)

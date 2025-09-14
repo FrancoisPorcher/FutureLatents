@@ -119,6 +119,7 @@ class Trainer:
         config: object,
         train_dataloader: Optional[Iterable[dict]] = None,
         val_dataloader: Optional[Iterable[dict]] = None,
+        visualisation_dataloader: Optional[Iterable[dict]] = None,
         checkpoint_dir: Optional[Path] = None,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
@@ -139,6 +140,7 @@ class Trainer:
         # Persist common runtime objects
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
+        self.visualisation_dataloader = visualisation_dataloader
         self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir is not None else None
         # Evaluation parameters
         self.eval_every = int(config.EVALUATION.EVAL_EVERY)
@@ -488,7 +490,7 @@ class Trainer:
             )
         return value
     
-    @torch.no_grad()
+    @torch.inference_mode()
     def run_evaluation(self) -> Optional[float]:
         """Run evaluation over the validation dataloader and log mean loss.
 
@@ -542,16 +544,106 @@ class Trainer:
     # ------------------------------------------------------------------
     # Visualisation utilities
     # ------------------------------------------------------------------
-    @torch.no_grad()
+    @torch.inference_mode()
     def run_visualisation(self) -> None:
-        """Load a small synthetic dataset for quick visualisation.
+        """Placeholder for visualisation hook (no-op for now)."""
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Begin run_visualisation (epoch=%d, step=%d)",
+                self.state.epoch,
+                self.state.step,
+            )
+        if not self.accelerator.is_main_process:
+            return
+        self.model.eval()
+        num_saved = 0
+        for i, batch in enumerate(self.visualisation_dataloader):
+            video_tensor = batch["video"]
+            video_to_save = video_tensor.detach().cpu()
+            out_path = self.dump_dir / f"video_tensor_bouncing_shapes_epoch_{self.state.epoch:02d}_batch{i:02d}.pt"
+            torch.save(video_to_save, out_path)
+            num_saved += 1
+            # Per-file save log mirrors step-level debug verbosity used elsewhere
+            self.logger.debug(
+                "Saved visualisation (epoch=%d, batch=%d) -> %s [shape=%s]",
+                self.state.epoch,
+                i,
+                str(out_path),
+                str(tuple(video_to_save.shape)),
+            )
 
-        For now, this just instantiates a single synthetic video and logs
-        basic shape information. This is a lightweight placeholder that can be
-        extended to push frames or embeddings to W&B.
-        """
+            # Also export an MP4 preview next to the tensor, if ffmpeg is available
+            try:
+                import shutil
+                import matplotlib  # import here to avoid global backend changes
+                matplotlib.use("Agg", force=True)  # headless backend for file writing
+                import matplotlib.pyplot as plt
+                from matplotlib import animation
+                import numpy as np
 
+                # Check ffmpeg availability early for clearer logs
+                if shutil.which("ffmpeg") is None:
+                    self.logger.warning(
+                        "ffmpeg not found in PATH; skipping MP4 export for %s",
+                        str(out_path),
+                    )
+                else:
+                    # Handle both [T,C,H,W] and [B,T,C,H,W]
+                    vt = video_to_save
+                    if vt.dim() == 4:
+                        vt = vt.unsqueeze(0)  # [1,T,C,H,W]
+                    if vt.dim() != 5:
+                        raise ValueError(f"Unexpected video dims: {vt.dim()} (expected 4 or 5)")
 
+                    bsz = vt.shape[0]
+                    for b in range(bsz):
+                        single = vt[b]  # [T,C,H,W]
+                        # Prepare frames: [T,C,H,W] -> [T,H,W,C]
+                        frames = single.permute(0, 2, 3, 1).contiguous().numpy()
+
+                        # Build figure once and stream frames to writer (memory efficient)
+                        fig, ax = plt.subplots()
+                        im = ax.imshow(frames[0])
+                        ax.axis("off")
+
+                        fps = 10  # default preview rate
+                        writer = animation.FFMpegWriter(
+                            fps=fps,
+                            codec="libx264",
+                            bitrate=2000,
+                            extra_args=["-pix_fmt", "yuv420p"],
+                        )
+
+                        if bsz == 1:
+                            mp4_path = out_path.with_suffix(".mp4")
+                        else:
+                            mp4_path = out_path.parent / f"{out_path.stem}_sample{b:02d}.mp4"
+                        with writer.saving(fig, str(mp4_path), dpi=100):
+                            for f in frames:
+                                im.set_data(f)
+                                writer.grab_frame()
+                        plt.close(fig)
+                        self.logger.debug(
+                            "Saved MP4 preview -> %s (fps=%d)",
+                            str(mp4_path),
+                            fps,
+                        )
+            except Exception as e:  # noqa: BLE001
+                # Keep training robust if video export fails for any reason
+                self.logger.warning(
+                    "Failed to export MP4 preview for %s: %s",
+                    str(out_path),
+                    str(e),
+                )
+            with self.accelerator.autocast():
+                outputs = self.model(batch, return_norms=False)
+                prediction, target = outputs
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "End run_visualisation (epoch=%d, files=%d)",
+                self.state.epoch,
+                num_saved,
+            )
     # ------------------------------------------------------------------
     # Checkpoint utilities
     # ------------------------------------------------------------------
@@ -564,15 +656,14 @@ class Trainer:
     # ------------------------------------------------------------------
     def fit(self):
         if self.eval_first:
-            self.run_evaluation()
             self.run_visualisation()
+            self.run_evaluation()
         for _ in range(self.state.epoch, self.epochs):
             self.train_epoch()
             self.run_visualisation()
             self.run_evaluation()
             self.save_checkpoint()
         
-            
 class DeterministicTrainer(Trainer):
     """Trainer variant for deterministic models."""
 
@@ -583,6 +674,7 @@ class DeterministicTrainer(Trainer):
         config: object,
         train_dataloader: Optional[Iterable[dict]] = None,
         val_dataloader: Optional[Iterable[dict]] = None,
+        visualisation_dataloader: Optional[Iterable[dict]] = None,
         checkpoint_dir: Optional[Path] = None,
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         accelerator: Optional[Accelerator] = None,
@@ -596,6 +688,7 @@ class DeterministicTrainer(Trainer):
             config=config,
             train_dataloader=train_dataloader,
             val_dataloader=val_dataloader,
+            visualisation_dataloader=visualisation_dataloader,
             checkpoint_dir=checkpoint_dir,
             scheduler=scheduler,
             accelerator=accelerator,

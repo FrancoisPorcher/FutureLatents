@@ -67,12 +67,11 @@ def main() -> None:
     val_dataset = build_dataset(config, split="val")
     visualisation_dataset = build_dataset(config, split="visualisation")
     
-    breakpoint()
 
     # In debug mode, limit dataset sizes to speed up iterations.
     if args.debug:
-        DEBUG_TRAIN_STEPS = 20
-        DEBUG_VAL_STEPS = 20
+        DEBUG_TRAIN_STEPS = 100
+        DEBUG_VAL_STEPS = 100
         train_dataset = torch.utils.data.Subset(train_dataset, range(DEBUG_TRAIN_STEPS))
         val_dataset = torch.utils.data.Subset(val_dataset, range(DEBUG_VAL_STEPS))
 
@@ -100,6 +99,14 @@ def main() -> None:
         shuffle=False,
         num_workers=num_workers,
         batch_size=eval_batch_size,
+    )
+    # Visualisation dataloader: use same num_workers and batch size from config
+    visualisation_batch_size = int(config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU)
+    visualisation_dataloader = torch.utils.data.DataLoader(
+        visualisation_dataset,
+        shuffle=False,
+        num_workers=num_workers,
+        batch_size=visualisation_batch_size,
     )
 
     log_file = dirs.logs_dir / "train.log"
@@ -141,6 +148,7 @@ def main() -> None:
         model=model,
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
+        visualisation_dataloader=visualisation_dataloader,
         checkpoint_dir=dirs.checkpoint_dir,
         optimizer=optimizer,
         scheduler=scheduler,

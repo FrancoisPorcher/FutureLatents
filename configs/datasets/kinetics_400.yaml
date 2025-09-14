@@ -1,8 +1,17 @@
 datasets:
-  kinetics_400:
-    n_frame: 64
-    stride: 2
-    paths:
-      train_csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_train_paths.csv
-      val_csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_val_paths.csv
-      labels_txt: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_labels.txt
+  train:
+    name: kinetics_400
+    kinetics_400:
+      n_frame: 64
+      stride: 2
+      paths:
+        csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_train_paths.csv
+        labels_txt: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_labels.txt
+  val:
+    name: kinetics_400
+    kinetics_400:
+      n_frame: 64
+      stride: 2
+      paths:
+        csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_val_paths.csv
+        labels_txt: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_labels.txt

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from .kinetics_400 import Kinetics400
 from .kinetics_400_cached import Kinetics400Cached
-from .SyntheticBouncingShapes import SyntheticBouncingShapes
+from .syntheticbouncingshapes import SyntheticBouncingShapes
 
 _DATASETS = {
     "kinetics_400": Kinetics400,
@@ -16,15 +16,25 @@ _DATASETS = {
 
 
 def build_dataset(config: DictConfig, split: str = "train"):
-    """Build a dataset according to the requested split.
-
-    Only handles the ``kinetics_400`` dataset and swaps the CSV path based on
-    the requested ``split``.
-    """
-
-    dataset_cfg = config.DATASETS.KINETICS_400
-    if str(split).lower() == "train":
-        dataset_cfg.PATHS.CSV = dataset_cfg.PATHS.TRAIN_CSV
-    else:
-        dataset_cfg.PATHS.CSV = dataset_cfg.PATHS.VAL_CSV
-    return _DATASETS["kinetics_400"](config)
+    if split=='train':
+        config_datasets_train = config.DATASETS.TRAIN
+        dataset_name = config_datasets_train.NAME
+        if dataset_name == 'kinetics_400':
+            config_kinetics_400 = config_datasets_train.KINETICS_400
+            dataset = Kinetics400(config_kinetics_400)
+        return dataset
+    elif split=='val':
+        config_datasets_val = config.DATASETS.VAL
+        dataset_name = config_datasets_val.NAME
+        if dataset_name == 'kinetics_400':
+            config_kinetics_400 = config_datasets_val.KINETICS_400
+            dataset = Kinetics400(config_kinetics_400)
+        return dataset
+    elif split=='visualisation':
+        config_datasets_visualisation = config.DATASETS.VISUALISATION
+        dataset_name = config_datasets_visualisation.NAME
+        if dataset_name == 'synthetic_bouncing_shapes':
+            config_synthetic_bouncing_shapes = config_datasets_visualisation.SYNTHETIC_BOUNCING_SHAPES
+            dataset = SyntheticBouncingShapes(config_synthetic_bouncing_shapes)
+        return dataset
+    

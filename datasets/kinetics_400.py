@@ -10,6 +10,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from decord import VideoReader
+from omegaconf import DictConfig
 
 def load_n_frames_with_padding(vr: VideoReader, n_frame: int, stride: int) -> Tuple[np.ndarray, bool]:
     """
@@ -48,10 +49,11 @@ class Kinetics400(Dataset):
 
     def __init__(self, config) -> None:
         self.config = config
-        self.csv_path = str(config.DATASETS.KINETICS_400.PATHS.CSV)
-        self.labels_path = str(config.DATASETS.KINETICS_400.PATHS.LABELS_TXT)
-        self.n_frame = int(config.DATASETS.KINETICS_400.N_FRAME)
-        self.stride = int(config.DATASETS.KINETICS_400.STRIDE)
+        self.csv_path = str(config.PATHS.CSV)
+        self.labels_path = str(config.PATHS.LABELS_TXT)
+        self.n_frame = int(config.N_FRAME)
+        self.stride = int(config.STRIDE)
+
         self.dataframe = pd.read_csv(self.csv_path, header=None, names=["video_path", "index"], sep=" ")
         with open(self.labels_path, "r") as f:
             lines = [line.strip().split(" ", 1) for line in f]
