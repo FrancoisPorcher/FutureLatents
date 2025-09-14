@@ -3,6 +3,7 @@
 from typing import Any, Tuple
 
 import logging
+import torch.distributed as dist
 from transformers import AutoImageProcessor, AutoModel, AutoVideoProcessor
 
 logger = logging.getLogger(__name__)
@@ -22,18 +23,30 @@ def build_backbone(backbone_cfg: Any) -> Tuple[Any, Any]:
     hf_repo = backbone_cfg.HF_REPO
     image_size = backbone_cfg.IMAGE_SIZE if "IMAGE_SIZE" in backbone_cfg else None
 
+    def _from_pretrained(fn, *args, **kwargs):
+        if dist.is_available() and dist.is_initialized():
+            if dist.get_rank() == 0:
+                obj = fn(*args, **kwargs)
+                dist.barrier()
+                return obj
+            dist.barrier()
+            return fn(*args, **kwargs)
+        return fn(*args, **kwargs)
+
     if backbone_type == "vjepa2":
         logger.info("Loading '%s' backbone from %s", backbone_type, hf_repo)
-        encoder = AutoModel.from_pretrained(hf_repo)
-        preprocessor = AutoVideoProcessor.from_pretrained(
+        encoder = _from_pretrained(AutoModel.from_pretrained, hf_repo)
+        preprocessor = _from_pretrained(
+            AutoVideoProcessor.from_pretrained,
             hf_repo,
             size={"height": image_size, "width": image_size} if image_size else None,
         )
         return encoder, preprocessor
     if backbone_type == "dinov3":
         logger.info("Loading '%s' backbone from %s", backbone_type, hf_repo)
-        encoder = AutoModel.from_pretrained(hf_repo)
-        preprocessor = AutoImageProcessor.from_pretrained(
+        encoder = _from_pretrained(AutoModel.from_pretrained, hf_repo)
+        preprocessor = _from_pretrained(
+            AutoImageProcessor.from_pretrained,
             hf_repo,
             size={"height": image_size, "width": image_size} if image_size else None,
         )
