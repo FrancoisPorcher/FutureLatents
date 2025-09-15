@@ -5,10 +5,15 @@ operating directly in latent space. Given a set of initial context frames, the
 model generates the future latent representations in a purely conditioned
 fashion.
 
-It currently targets the VJEPA2 and DINOv3 backbones and the Kinetics 400
-dataset, and provides a `Kinetics400_cached` variant for training on
-pre-computed embeddings. Support for 4DS is incoming alongside additional
-backbones and datasets.
+It supports two backbones — VJEPA2 and DINOv3 — on Kinetics‑400. Three
+prediction regimes are available:
+
+- Deterministic (Predictor): direct regression of future latents
+- Deterministic (Cross‑Attention): context→target cross‑attention variant
+- Stochastic (Flow Matching): diffusive/flow‑matching training
+
+There is also a `Kinetics400_cached` path to train on pre‑computed embeddings.
+Support for 4DS is incoming alongside additional backbones and datasets.
 
 
 ## Installation
@@ -90,9 +95,26 @@ configuration.
 Print the resolved configuration, instantiate the dataset and model and set up the optimiser:
 
 ```bash
+# Stochastic (flow matching), VJEPA2 backbone
 python -m src.main --config_path configs/references/vjepa2_kinetics_400.yaml
-# or the deterministic variant
+
+# Deterministic (predictor), VJEPA2 backbone
 python -m src.main --config_path configs/references/vjepa2_kinetics_400_deterministic.yaml
+
+# Deterministic (cross‑attention), VJEPA2 backbone
+python -m src.main --config_path configs/references/vjepa2_kinetics_400_deterministic_cross_attention.yaml
+
+# Deterministic (predictor), DINOv3 backbone
+python -m src.main --config_path configs/references/dinov3_kinetics_400_deterministic.yaml
+
+# Deterministic (cross‑attention), DINOv3 backbone
+python -m src.main --config_path configs/references/dinov3_kinetics_400_deterministic_cross_attention.yaml
+
+# Optional: cached embeddings variant (VJEPA2 + cached features)
+python -m src.main --config_path configs/references/vjepa2_kinetics_400_cached.yaml
+
+# Tip: append --debug to use tiny subsets and disable W&B
+python -m src.main --config_path configs/references/dinov3_kinetics_400_deterministic.yaml --debug
 ```
 
 A minimal training example that freezes the encoder and builds an `AdamW` optimiser over trainable
@@ -104,6 +126,49 @@ python -m training.main
 
 Both commands expect that the Kinetics‑400 annotation CSV path in
 `configs/datasets/kinetics_400.yaml` points to a valid location. When using cached embeddings, make sure `configs/datasets/kinetics_400_cached.yaml` references a metadata CSV describing the saved embeddings.
+
+### Experiments overview
+
+- Backbones: `configs/backbones/vjepa2.yaml`, `configs/backbones/dinov3.yaml`.
+- Deterministic variants: predictor and cross‑attention.
+- Stochastic variant: flow matching (reference provided for VJEPA2).
+- Reference configs: see `configs/references/` for ready‑to‑run combinations.
+
+### Visualisation tools
+
+During training, the trainer exports per‑epoch visualisations to
+`experiment/<config_name>/dump/`. For each example, it saves:
+
+- `video.mp4`: preview video (requires `ffmpeg` in PATH)
+- `video.pt`: raw frames tensor (`[T,C,H,W]`)
+- `context_latents.pt`: latents used as context
+- `target_latents.pt`: ground‑truth future latents
+- `prediction_latents.pt`: model predictions
+
+You can control when these dumps happen via `trainer.evaluation.eval_every`
+and `trainer.evaluation.eval_first` in the training configs. If `ffmpeg` is not
+available, MP4 export is skipped but the `.pt` tensors are still saved.
+
+Quick inspection in Python:
+
+```python
+import torch
+from pathlib import Path
+
+ex = Path("experiment/<config_name>/dump/example_00")
+ctx = torch.load(ex / "context_latents.pt")
+tgt = torch.load(ex / "target_latents.pt")
+pred = torch.load(ex / "prediction_latents.pt")
+vid = torch.load(ex / "video.pt")  # [T,C,H,W]
+```
+
+Programmatic export utilities live in `utils/video.py`:
+
+- `convert_video_tensor_to_mp4(video_tensor)` → frames, fps
+- `save_mp4_video(frames, out_base_path, fps)` → writes `*.mp4`
+- `save_visualisation_tensors(video, context, target, prediction, out_dir)`
+
+There is also an example notebook at `notebooks/visualise_dumps.ipynb`.
 
 ### Pre-computed embeddings
 
