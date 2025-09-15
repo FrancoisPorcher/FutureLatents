@@ -1,6 +1,8 @@
 from pathlib import Path
 import logging
 import shutil
+import torch
+import wandb
 
 # Import the project package relative to this module so that running
 # ``python -m src.main`` works without requiring ``src`` on the
@@ -11,10 +13,8 @@ from training import build_trainer
 from utils.parser import create_parser
 from utils.config import load_config, print_config
 from utils.filesystem import make_experiment_dirs
-import torch
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
-import wandb
 
 
 def main() -> None:
@@ -84,8 +84,8 @@ def main() -> None:
 
     # In debug mode, limit dataset sizes to speed up iterations.
     if args.debug:
-        DEBUG_TRAIN_STEPS = 20
-        DEBUG_VAL_STEPS = 20
+        DEBUG_TRAIN_STEPS = 200
+        DEBUG_VAL_STEPS = 10
         train_dataset = torch.utils.data.Subset(train_dataset, range(DEBUG_TRAIN_STEPS))
         val_dataset = torch.utils.data.Subset(val_dataset, range(DEBUG_VAL_STEPS))
 

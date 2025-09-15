@@ -27,9 +27,9 @@ from utils.video import (
     save_tensor,
     save_visualisation_tensors,
 )
-from utils.pca import _to_numpy, _reshape_to_video_tensor
-from sklearn.decomposition import PCA
+from utils.pca import pca_latents_to_video_tensors
 from .losses import get_criterion
+from utils.latents import infer_latent_dimensions
 
 @dataclass
 class TrainState:
@@ -156,6 +156,8 @@ class Trainer:
         self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
         # Global configuration
         self.n_frames = int(config.N_FRAMES)
+        # Latent/layout dimensions inferred from full model config
+        self.n_ctx_lat, self.n_tgt_lat, self.spatial = infer_latent_dimensions(self.model.config)
 
         # Training parameters
         self.epochs = int(config.TRAINING.EPOCHS) if not self.debug else 1
@@ -572,10 +574,10 @@ class Trainer:
         for batch in self.visualisation_dataloader:
             videos = batch["video"] # (B, T, C, H, W)
             with self.accelerator.autocast():
-                pred_latents, _, context_latents, target_latents = self.model(batch)
+                prediction_latents, _, context_latents, target_latents = self.model(batch)
 
             for b in range(videos.shape[0]):
-                example_dir = self.dump_dir / f"example_{example_idx:02d}"
+                example_dir = self.dump_dir / f"epoch_{self.state.epoch:02d}" / f"example_{example_idx:02d}"
                 example_dir.mkdir(parents=True, exist_ok=True)
 
                 video = videos[b].detach().cpu()
@@ -585,37 +587,23 @@ class Trainer:
                     video,
                     context_latents[b],
                     target_latents[b],
-                    pred_latents[b],
+                    prediction_latents[b],
                     example_dir,
                     logger=self.logger,
                 )
 
-                # Infer temporal and spatial token layout from model + shapes
-                model_ref = getattr(self.model, "module", self.model)
-                n_ctx_lat = int(getattr(model_ref, "num_context_latents"))
-                n_tgt_lat = int(getattr(model_ref, "num_target_latents"))
-                ctx_tokens = int(context_latents[b].shape[0])
-                tgt_tokens = int(target_latents[b].shape[0])
-                # tokens per time step (H*W)
-                spatial_tokens = max(1, ctx_tokens // max(1, n_ctx_lat))
-                side = int(spatial_tokens ** 0.5)
-                if side * side != spatial_tokens:
-                    # Fallback: try to deduce from target
-                    spatial_tokens = max(spatial_tokens, tgt_tokens // max(1, n_tgt_lat))
-                    side = int(spatial_tokens ** 0.5)
-                H = W = side
-
-                # PCA projection (fit on context) -> RGB video tensors
-                c = _to_numpy(context_latents[b])
-                t = _to_numpy(target_latents[b])
-                p = _to_numpy(pred_latents[b])
-
-                pca = PCA(n_components=3)
-                pca.fit(c)
-
-                c_vid = _reshape_to_video_tensor(pca.transform(c), int(n_ctx_lat), H, W)
-                t_vid = _reshape_to_video_tensor(pca.transform(t), int(n_tgt_lat), H, W)
-                p_vid = _reshape_to_video_tensor(pca.transform(p), int(n_tgt_lat), H, W)
+                # PCA projections -> RGB video tensors using helper
+                # Context latents: fit PCA on context and reshape with T=n_ctx_lat
+                c_vid, t_vid, p_vid = pca_latents_to_video_tensors(
+                    context_latents=context_latents[b],
+                    target_latents=target_latents[b],
+                    prediction_latents=prediction_latents[b],
+                    n_ctx_lat=self.n_ctx_lat,
+                    n_tgt_lat=self.n_tgt_lat,
+                    H=self.spatial,
+                    W=self.spatial,
+                    fit_on="context",
+                )
 
                 # Save PCA tensors
                 save_tensor(c_vid, example_dir / "context_latents_pca.pt", logger=self.logger)

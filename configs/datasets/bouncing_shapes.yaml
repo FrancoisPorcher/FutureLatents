@@ -3,7 +3,7 @@ datasets:
     name: synthetic_bouncing_shapes
     synthetic_bouncing_shapes:
       # Number of samples exposed by the dataset
-      length: 2048
+      length: 8192
       # Frames per clip (tied to trainer setting)
       n_frame: ${TRAINER.N_FRAMES}
       # Image size matches the backbone resolution
@@ -16,7 +16,7 @@ datasets:
   val:
     name: synthetic_bouncing_shapes
     synthetic_bouncing_shapes:
-      length: 128
+      length: 512
       n_frame: ${TRAINER.N_FRAMES}
       image_size: ${BACKBONE.IMAGE_SIZE}
       square_size: 64
