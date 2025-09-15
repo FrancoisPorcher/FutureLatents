@@ -230,7 +230,7 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
         timesteps = t * self.num_train_timesteps
 
         prediction = self.flow_transformer(context_latents, xt, timesteps)  # predict velocity
-        return prediction, velocity
+        return prediction, velocity, context_latents, target_latents
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
         yield from [m for m in [self.encoder, self.flow_transformer] if m is not None]
@@ -254,7 +254,7 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
 
         prediction = self.predictor(context_latents)  # direct next-token prediction
-        return prediction, target_latents
+        return prediction, target_latents, context_latents, target_latents
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
         yield from [m for m in [self.encoder, self.predictor] if m is not None]
@@ -296,7 +296,7 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         target_queries = self.target_queries.repeat(B, 1, 1)  # [B, (T*H*W), D]
 
         prediction = self.predictor(context_latents, target_queries)
-        return prediction, target_latents
+        return prediction, target_latents, context_latents, target_latents
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
         yield from [m for m in [self.encoder, self.predictor] if m is not None]
