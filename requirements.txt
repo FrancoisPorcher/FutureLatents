@@ -10,3 +10,4 @@ diffusers
 wandb
 einops
 matplotlib
+opencv-python

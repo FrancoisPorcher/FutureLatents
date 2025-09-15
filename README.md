@@ -127,6 +127,23 @@ python -m training.main
 Both commands expect that the Kinetics‑400 annotation CSV path in
 `configs/datasets/kinetics_400.yaml` points to a valid location. When using cached embeddings, make sure `configs/datasets/kinetics_400_cached.yaml` references a metadata CSV describing the saved embeddings.
 
+### Synthetic Bouncing Shapes
+
+You can train on a procedurally generated dataset (no downloads required). The
+config at `configs/datasets/bouncing_shapes.yaml` defines train/val/visualisation
+splits. Ready‑to‑run references:
+
+```bash
+# Deterministic predictor (VJEPA2 backbone)
+python -m src.main --config_path configs/references/vjepa2_bouncing_shapes_deterministic.yaml
+
+# Flow matching (VJEPA2 backbone)
+python -m src.main --config_path configs/references/vjepa2_bouncing_shapes_flow_matching.yaml
+```
+
+The number of frames is inherited from `trainer.n_frames` and the resolution
+from the selected backbone (e.g., VJEPA2).
+
 ### Experiments overview
 
 - Backbones: `configs/backbones/vjepa2.yaml`, `configs/backbones/dinov3.yaml`.

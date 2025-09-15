@@ -1,0 +1,5 @@
+inherits:
+  - ../datasets/bouncing_shapes.yaml
+  - ../backbones/dinov3.yaml
+  - ../training/trainer_deterministic.yaml
+

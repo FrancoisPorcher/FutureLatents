@@ -1,0 +1,36 @@
+datasets:
+  train:
+    name: synthetic_bouncing_shapes
+    synthetic_bouncing_shapes:
+      # Number of samples exposed by the dataset
+      length: 2048
+      # Frames per clip (tied to trainer setting)
+      n_frame: ${TRAINER.N_FRAMES}
+      # Image size matches the backbone resolution
+      image_size: ${BACKBONE.IMAGE_SIZE}
+      # Shape parameters
+      square_size: 64
+      square_init: [16.0, 32.0]
+      square_vel: [3.0, 2.0]
+      disk_radius: 24
+  val:
+    name: synthetic_bouncing_shapes
+    synthetic_bouncing_shapes:
+      length: 128
+      n_frame: ${TRAINER.N_FRAMES}
+      image_size: ${BACKBONE.IMAGE_SIZE}
+      square_size: 64
+      square_init: [16.0, 32.0]
+      square_vel: [3.0, 2.0]
+      disk_radius: 24
+  visualisation:
+    name: synthetic_bouncing_shapes
+    synthetic_bouncing_shapes:
+      length: 4
+      n_frame: ${TRAINER.N_FRAMES}
+      image_size: ${BACKBONE.IMAGE_SIZE}
+      square_size: 64
+      square_init: [16.0, 32.0]
+      square_vel: [3.0, 2.0]
+      disk_radius: 24
+

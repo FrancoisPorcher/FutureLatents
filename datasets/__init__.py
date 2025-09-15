@@ -22,6 +22,12 @@ def build_dataset(config: DictConfig, split: str = "train"):
         if dataset_name == 'kinetics_400':
             config_kinetics_400 = config_datasets_train.KINETICS_400
             dataset = Kinetics400(config_kinetics_400)
+        elif dataset_name == 'kinetics_400_cached':
+            config_kinetics_400_cached = config_datasets_train.KINETICS_400_CACHED
+            dataset = Kinetics400Cached(config_kinetics_400_cached)
+        elif dataset_name == 'synthetic_bouncing_shapes':
+            config_sbs = config_datasets_train.SYNTHETIC_BOUNCING_SHAPES
+            dataset = SyntheticBouncingShapes(config_sbs)
         return dataset
     elif split=='val':
         config_datasets_val = config.DATASETS.VAL
@@ -29,6 +35,12 @@ def build_dataset(config: DictConfig, split: str = "train"):
         if dataset_name == 'kinetics_400':
             config_kinetics_400 = config_datasets_val.KINETICS_400
             dataset = Kinetics400(config_kinetics_400)
+        elif dataset_name == 'kinetics_400_cached':
+            config_kinetics_400_cached = config_datasets_val.KINETICS_400_CACHED
+            dataset = Kinetics400Cached(config_kinetics_400_cached)
+        elif dataset_name == 'synthetic_bouncing_shapes':
+            config_sbs = config_datasets_val.SYNTHETIC_BOUNCING_SHAPES
+            dataset = SyntheticBouncingShapes(config_sbs)
         return dataset
     elif split=='visualisation':
         config_datasets_visualisation = config.DATASETS.VISUALISATION

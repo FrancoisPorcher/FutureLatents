@@ -71,7 +71,7 @@ def main() -> None:
     overwrite_experiment = experiment_root.exists()
     # When overwriting, remove the entire folder (no distinctions), unless debug.
     if accelerator.is_main_process:
-        if overwrite_experiment and not args.debug:
+        if overwrite_experiment:
             print("Overwriting experiment", experiment_root)
             shutil.rmtree(experiment_root)
         dirs = make_experiment_dirs(experiment_root)

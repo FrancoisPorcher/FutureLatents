@@ -8,6 +8,9 @@ import shutil
 
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
+from IPython.display import HTML, display
+import matplotlib.animation as animation
 
 
 def save_tensor(
@@ -133,3 +136,84 @@ def save_mp4_video(
 
     return written
 
+
+def visualise_video_pt(video_pt, fps: int = 24, loop: bool = True, figsize=(6, 6)):
+    """
+    Visualise a video tensor inline in a notebook.
+
+    Parameters
+    ----------
+    video_pt : torch.Tensor
+        Video tensor of shape (T, C, H, W) or (1, T, C, H, W). C should be 1 or >=3.
+        Values can be in [0,1], [0,255], or arbitrary float range (auto-normalised).
+    fps : int
+        Frames per second for playback.
+    loop : bool
+        Whether the animation should loop.
+    figsize : tuple
+        Matplotlib figure size.
+
+    Returns
+    -------
+    IPython.display.HTML
+        HTML object that renders the animation inline.
+    """
+    if not isinstance(video_pt, torch.Tensor):
+        raise TypeError("video_pt must be a torch.Tensor")
+
+    x = video_pt.detach().cpu()
+
+    # Accept (1, T, C, H, W) by squeezing batch dim if present
+    if x.ndim == 5 and x.shape[0] == 1:
+        x = x.squeeze(0)
+
+    if x.ndim != 4:
+        raise ValueError(f"Expected tensor with 4 dims (T, C, H, W), got shape {tuple(x.shape)}")
+
+    T, C, H, W = x.shape
+    if C == 1:
+        pass  # grayscale supported
+    elif C >= 3:
+        x = x[:, :3, ...]  # take first 3 channels if more are present
+    else:
+        raise ValueError(f"Unsupported channel count C={C}. Expected 1 (grayscale) or >=3 (RGB).")
+
+    # (T, C, H, W) -> (T, H, W, C)
+    x = x.permute(0, 2, 3, 1).contiguous().float().numpy()
+
+    # Robust normalisation to uint8
+    x_min, x_max = x.min(), x.max()
+    if x_min >= 0 and x_max <= 1.5:
+        x = (x * 255.0).clip(0, 255).astype(np.uint8)
+    elif x_min >= 0 and x_max <= 255.0:
+        x = x.clip(0, 255).astype(np.uint8)
+    else:
+        # Auto min-max scale across the whole clip
+        x = ((x - x_min) / (x_max - x_min + 1e-8) * 255.0).clip(0, 255).astype(np.uint8)
+
+    is_gray = (x.shape[-1] == 1)
+
+    # Build animation
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.axis("off")
+    if is_gray:
+        im = ax.imshow(x[0, ..., 0], cmap="gray", vmin=0, vmax=255, animated=True)
+    else:
+        im = ax.imshow(x[0], animated=True)
+
+    def _update(i):
+        if is_gray:
+            im.set_data(x[i, ..., 0])
+        else:
+            im.set_data(x[i])
+        return (im,)
+
+    interval_ms = int(1000 / max(1, fps))
+    ani = animation.FuncAnimation(
+        fig, _update, frames=T, interval=interval_ms, blit=True, repeat=loop
+    )
+
+    # Render as JS/HTML (no external encoders needed)
+    html = ani.to_jshtml(fps=fps, default_mode="loop" if loop else "once")
+    plt.close(fig)  # prevent duplicate static figure display
+    return HTML(html)

@@ -24,8 +24,11 @@ import wandb
 from utils.video import (
     convert_video_tensor_to_mp4,
     save_mp4_video,
+    save_tensor,
     save_visualisation_tensors,
 )
+from utils.pca import _to_numpy, _reshape_to_video_tensor
+from sklearn.decomposition import PCA
 from .losses import get_criterion
 
 @dataclass
@@ -567,7 +570,7 @@ class Trainer:
         num_examples = 0
         example_idx = 0
         for batch in self.visualisation_dataloader:
-            videos = batch["video"]
+            videos = batch["video"] # (B, T, C, H, W)
             with self.accelerator.autocast():
                 pred_latents, _, context_latents, target_latents = self.model(batch)
 
@@ -586,6 +589,46 @@ class Trainer:
                     example_dir,
                     logger=self.logger,
                 )
+
+                # Infer temporal and spatial token layout from model + shapes
+                model_ref = getattr(self.model, "module", self.model)
+                n_ctx_lat = int(getattr(model_ref, "num_context_latents"))
+                n_tgt_lat = int(getattr(model_ref, "num_target_latents"))
+                ctx_tokens = int(context_latents[b].shape[0])
+                tgt_tokens = int(target_latents[b].shape[0])
+                # tokens per time step (H*W)
+                spatial_tokens = max(1, ctx_tokens // max(1, n_ctx_lat))
+                side = int(spatial_tokens ** 0.5)
+                if side * side != spatial_tokens:
+                    # Fallback: try to deduce from target
+                    spatial_tokens = max(spatial_tokens, tgt_tokens // max(1, n_tgt_lat))
+                    side = int(spatial_tokens ** 0.5)
+                H = W = side
+
+                # PCA projection (fit on context) -> RGB video tensors
+                c = _to_numpy(context_latents[b])
+                t = _to_numpy(target_latents[b])
+                p = _to_numpy(pred_latents[b])
+
+                pca = PCA(n_components=3)
+                pca.fit(c)
+
+                c_vid = _reshape_to_video_tensor(pca.transform(c), int(n_ctx_lat), H, W)
+                t_vid = _reshape_to_video_tensor(pca.transform(t), int(n_tgt_lat), H, W)
+                p_vid = _reshape_to_video_tensor(pca.transform(p), int(n_tgt_lat), H, W)
+
+                # Save PCA tensors
+                save_tensor(c_vid, example_dir / "context_latents_pca.pt", logger=self.logger)
+                save_tensor(t_vid, example_dir / "target_latents_pca.pt", logger=self.logger)
+                save_tensor(p_vid, example_dir / "prediction_latents_pca.pt", logger=self.logger)
+
+                # Save PCA videos (MP4)
+                frames_c, fps_c = convert_video_tensor_to_mp4(c_vid)
+                frames_t, fps_t = convert_video_tensor_to_mp4(t_vid)
+                frames_p, fps_p = convert_video_tensor_to_mp4(p_vid)
+                save_mp4_video(frames_c, example_dir / "context_latents_pca", fps=fps_c, logger=self.logger)
+                save_mp4_video(frames_t, example_dir / "target_latents_pca", fps=fps_t, logger=self.logger)
+                save_mp4_video(frames_p, example_dir / "prediction_latents_pca", fps=fps_p, logger=self.logger)
 
                 example_idx += 1
                 num_examples += 1
