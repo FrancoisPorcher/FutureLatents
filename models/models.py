@@ -13,6 +13,7 @@ from einops import rearrange
 from .backbone import build_backbone
 
 from .DiT import DiT, PredictorTransformer, PredictorTransformerCrossAttention
+from utils.latents import infer_latent_dimensions
 
 from utils.latents import infer_latent_dimensions
 
@@ -271,8 +272,11 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
         self.predictor = PredictorTransformerCrossAttention(**dit_cfg)
 
-        T_latent, H_latent, W_latent = infer_latent_dimensions(config)
-        breakpoint()
+        # Initialise target queries based on latent dimensions
+        _, num_target_latents, spatial = infer_latent_dimensions(config)
+        D = int(config.MODEL.DIT.INPUT_DIM)
+        T = int(num_target_latents)
+        H = W = int(spatial)
         target_queries = nn.Parameter(torch.randn(1, T * H * W, D))
         self.register_parameter("target_queries", target_queries)
 
@@ -285,9 +289,11 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         # Flatten tokens: [B, (T*H*W), D]
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
+        
+        B, _, _ = context_latents.shape
 
         # get the target queries and repeat for batch size
-        target_queries = self.target_queries.repeat(context_latents.shape[0], 1, 1)  # [B, (T*H*W), D]
+        target_queries = self.target_queries.repeat(B, 1, 1)  # [B, (T*H*W), D]
 
         prediction = self.predictor(context_latents, target_queries)
         return prediction, target_latents

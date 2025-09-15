@@ -84,8 +84,8 @@ def main() -> None:
 
     # In debug mode, limit dataset sizes to speed up iterations.
     if args.debug:
-        DEBUG_TRAIN_STEPS = 100
-        DEBUG_VAL_STEPS = 100
+        DEBUG_TRAIN_STEPS = 20
+        DEBUG_VAL_STEPS = 20
         train_dataset = torch.utils.data.Subset(train_dataset, range(DEBUG_TRAIN_STEPS))
         val_dataset = torch.utils.data.Subset(val_dataset, range(DEBUG_VAL_STEPS))
 

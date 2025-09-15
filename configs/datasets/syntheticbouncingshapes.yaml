@@ -3,7 +3,7 @@ datasets:
     name: synthetic_bouncing_shapes
     synthetic_bouncing_shapes:
       length: 4
-      n_frame: 64
+      n_frame: ${TRAINER.N_FRAMES}
       stride: 2
       image_size: 256
       square_size: 64
