@@ -2,7 +2,7 @@ datasets:
   train:
     name: kinetics_400
     kinetics_400:
-      n_frame: 64
+      n_frame: ${TRAINER.N_FRAMES}
       stride: 2
       paths:
         csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_train_paths.csv
@@ -10,7 +10,7 @@ datasets:
   val:
     name: kinetics_400
     kinetics_400:
-      n_frame: 64
+      n_frame: ${TRAINER.N_FRAMES}
       stride: 2
       paths:
         csv: /checkpoint/abardes/datasets/Kinetics400/annotations/k400_val_paths.csv

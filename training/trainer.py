@@ -150,7 +150,9 @@ class Trainer:
         # Evaluation parameters
         self.eval_every = int(config.EVALUATION.EVAL_EVERY)
         self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
-        
+        # Global configuration
+        self.n_frames = int(config.N_FRAMES)
+
         # Training parameters
         self.epochs = int(config.TRAINING.EPOCHS) if not self.debug else 1
         self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM

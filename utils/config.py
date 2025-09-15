@@ -18,7 +18,11 @@ def _merge_with_conflict(base: OmegaConf, override: OmegaConf) -> OmegaConf:
 def _uppercase_keys(cfg: Any) -> Any:
     """Recursively convert all mapping keys to upper case."""
     if isinstance(cfg, DictConfig):
-        data = {k.upper(): _uppercase_keys(v) for k, v in cfg.items()}
+        # ``items_ex(resolve=False)`` preserves unresolved interpolations so that
+        # cross-file references remain intact after merging. Using ``items()``
+        # would attempt to resolve them immediately, which fails when the
+        # referenced keys are defined in a later config.
+        data = {k.upper(): _uppercase_keys(v) for k, v in cfg.items_ex(resolve=False)}
         return OmegaConf.create(data)
     if isinstance(cfg, ListConfig):
         return OmegaConf.create([_uppercase_keys(v) for v in cfg])

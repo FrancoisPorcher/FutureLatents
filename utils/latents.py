@@ -4,20 +4,23 @@ from omegaconf import DictConfig
 
 
 def infer_latent_dimensions(cfg: DictConfig) -> tuple[int, int, int]:
-    """Infer temporal and spatial latent dimensions from configuration.
+    """Return context/target temporal latents and spatial tokens from config.
 
-    Returns a tuple ``(t, h, w)`` where ``t`` is the number of temporal latents
-    and ``h``/``w`` are the number of spatial tokens along each dimension.
+    The configuration already specifies ``NUM_CONTEXT_LATENTS`` and
+    ``NUM_TARGET_LATENTS`` under ``MODEL``. This helper simply reads those
+    values and computes the spatial token count per dimension using the
+    backbone's image and patch sizes.
+
+    Returns a tuple ``(n_context, n_target, spatial)`` where ``spatial`` is the
+    number of spatial tokens along a single dimension (height/width).
     """
-    train_cfg = cfg["DATASETS"]["TRAIN"]
-    dataset_cfg = train_cfg[train_cfg["NAME"].upper()]
-    n_frames = dataset_cfg["N_FRAME"]
-    t_stride = dataset_cfg["STRIDE"]
-    temporal = n_frames // t_stride
+    model_cfg = cfg["MODEL"]
+    n_context = int(model_cfg["NUM_CONTEXT_LATENTS"])
+    n_target = int(model_cfg["NUM_TARGET_LATENTS"])
 
     backbone_cfg = cfg["BACKBONE"]
-    image_size = backbone_cfg["IMAGE_SIZE"]
-    patch_size = backbone_cfg["PATCH_SIZE"]
+    image_size = int(backbone_cfg["IMAGE_SIZE"])
+    patch_size = int(backbone_cfg["PATCH_SIZE"])
     spatial = image_size // patch_size
 
-    return temporal, spatial, spatial
+    return n_context, n_target, spatial
