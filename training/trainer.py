@@ -8,24 +8,25 @@ feature rich trainers in the future.
 
 from __future__ import annotations
 
+import contextlib
+import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Callable, Dict, Any
-import contextlib
-import time
+from typing import Any, Callable, Dict, Iterable, Optional
 
-import torch
 from accelerate import Accelerator
 from accelerate.utils import tqdm
-import logging
-import wandb
 from einops import rearrange
-from .losses import get_criterion
+import torch
+import wandb
+
 from utils.video import (
     convert_video_tensor_to_mp4,
     save_mp4_video,
     save_visualisation_tensors,
 )
+from .losses import get_criterion
 
 @dataclass
 class TrainState:
