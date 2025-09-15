@@ -3,3 +3,4 @@ backbone:
   model_name: vjepa2_vitl_fpc64_256
   hf_repo: facebook/vjepa2-vitl-fpc64-256
   image_size: 256
+  patch_size: 16
