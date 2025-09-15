@@ -28,6 +28,27 @@ def save_tensor(
     return path
 
 
+def save_visualisation_tensors(
+    video: torch.Tensor,
+    context_latents: torch.Tensor,
+    target_latents: torch.Tensor,
+    prediction_latents: torch.Tensor,
+    out_dir: Path | str,
+    logger: Optional[logging.Logger] = None,
+) -> None:
+    """Save visualisation tensors into ``out_dir``.
+
+    This convenience wrapper stores the input ``video`` and the three latent
+    tensors used during visualisation (``context_latents``, ``target_latents``
+    and ``prediction_latents``) using :func:`save_tensor`.
+    """
+    directory = Path(out_dir)
+    save_tensor(video, directory / "video.pt", logger=logger)
+    save_tensor(context_latents, directory / "context_latents.pt", logger=logger)
+    save_tensor(target_latents, directory / "target_latents.pt", logger=logger)
+    save_tensor(prediction_latents, directory / "prediction_latents.pt", logger=logger)
+
+
 def convert_video_tensor_to_mp4(
     video_tensor: torch.Tensor,
 ) -> Tuple[List[np.ndarray], int]:
