@@ -1,5 +1,5 @@
 inherits:
-  - ../datasets/bouncing_shapes.yaml
+  - ../datasets/synthetic_bouncing_shapes_images.yaml
   - ../backbones/dinov3.yaml
   - ../training/trainer_deterministic_cross_attention.yaml
 

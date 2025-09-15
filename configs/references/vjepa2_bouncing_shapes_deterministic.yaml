@@ -1,5 +1,5 @@
 inherits:
-  - ../datasets/bouncing_shapes.yaml
+  - ../datasets/synthetic_bouncing_shapes.yaml
   - ../backbones/vjepa2.yaml
   - ../training/trainer_deterministic.yaml
 

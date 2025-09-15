@@ -1,2 +1,2 @@
 inherits:
-  - ../datasets/bouncing_shapes.yaml
+  - ../datasets/synthetic_bouncing_shapes.yaml

@@ -130,8 +130,9 @@ Both commands expect that the Kinetics‑400 annotation CSV path in
 ### Synthetic Bouncing Shapes
 
 You can train on a procedurally generated dataset (no downloads required). The
-config at `configs/datasets/bouncing_shapes.yaml` defines train/val/visualisation
-splits. Ready‑to‑run references:
+video configuration at `configs/datasets/synthetic_bouncing_shapes.yaml` defines train/val/visualisation
+splits, while `configs/datasets/synthetic_bouncing_shapes_images.yaml` exposes the single-frame image
+variant used by the cross-attention reference. Ready‑to‑run references:
 
 ```bash
 # Deterministic predictor (VJEPA2 backbone)
