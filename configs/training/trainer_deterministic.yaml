@@ -23,6 +23,7 @@ trainer:
 model:
   type: deterministic
   num_context_latents: 16
+  num_target_latents: 16
   dit:
     input_dim: 1024
     hidden_dim: 1024

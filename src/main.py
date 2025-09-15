@@ -46,9 +46,12 @@ def main() -> None:
             )
         ],
     )
-    
     if accelerator.device.type == "cuda":
-        torch.cuda.set_device(accelerator.device)
+        # Ensure a concrete CUDA device index is selected
+        device_index = accelerator.device.index
+        if device_index is None:
+            device_index = 0
+        torch.cuda.set_device(device_index)
     
     with accelerator.main_process_first():
         model = build_model(config)
@@ -58,16 +61,20 @@ def main() -> None:
     # Experiment directories
     # ------------------------------------------------------------------
     project_root = Path(__file__).resolve().parent.parent
-    experiment_root = project_root / "experiment" / config_name
+    
+    if args.debug:
+        experiment_root = project_root / "experiment" / "debug" / config_name
+        if accelerator.is_main_process:
+            print("Debug mode: experiment will be saved to", experiment_root)
+    else:
+        experiment_root = project_root / "experiment" / config_name
     overwrite_experiment = experiment_root.exists()
     # When overwriting, remove the entire folder (no distinctions), unless debug.
-    if overwrite_experiment and accelerator.is_main_process:
-        print("Overwriting experiment", experiment_root)
-        shutil.rmtree(experiment_root)
-    accelerator.wait_for_everyone()
-
-    # Create and retrieve standard experiment directories
-    dirs = make_experiment_dirs(experiment_root)
+    if accelerator.is_main_process:
+        if overwrite_experiment and not args.debug:
+            print("Overwriting experiment", experiment_root)
+            shutil.rmtree(experiment_root)
+        dirs = make_experiment_dirs(experiment_root)
     accelerator.wait_for_everyone()
 
     train_dataset = build_dataset(config, split="train")
@@ -115,7 +122,6 @@ def main() -> None:
         num_workers=num_workers,
         batch_size=visualisation_batch_size,
     )
-
     log_file = dirs.logs_dir / "train.log"
     if accelerator.is_main_process:
         # Always log to both console and file, regardless of debug mode

@@ -16,9 +16,6 @@ from .DiT import DiT, PredictorTransformer, PredictorTransformerCrossAttention
 
 logger = logging.getLogger(__name__)
 
-# to compute norms, temp
-from torch import linalg as LA
-
 
 class LatentVideoBase(nn.Module):
     """Lightweight base: only shared utilities + (optional) backbone. No algorithm-specific parts."""
@@ -38,6 +35,7 @@ class LatentVideoBase(nn.Module):
 
         # --- Shared knobs ---
         self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
+        self.num_target_latents = config.MODEL.NUM_TARGET_LATENTS
         self.embedding_norm = config.TRAINER.TRAINING.EMBEDDING_NORM.lower()
 
         # --- Encoder freeze policy ---
@@ -66,6 +64,21 @@ class LatentVideoBase(nn.Module):
         n = sum(p.numel() for p in self.parameters() if p.requires_grad)
         logger.info("Trainable parameters: %.2fM", n / 1e6)
         return n
+    
+    def infer_latent_shape_from_config(self):
+        patch_size = 16
+        # get the img_size from the backbone config
+        
+        # compute then number of patches on H
+        
+        # compute the number of patches in W
+        
+        # get the stride from the video config
+        
+        # get the number of frames from the video config
+        
+        # deduce the number of frames after striding
+        breakpoint()
 
     # ------------------------------
     # Forward helpers
@@ -166,43 +179,35 @@ class LatentVideoBase(nn.Module):
         raise ValueError("`inputs` must contain either 'video' or 'embedding'")
 
     def split_latents(self, latents: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        n = int(self.num_context_latents)
-        if n < 0 or n > latents.shape[2]:
-            raise ValueError("`num_context_latents` is out of bounds")
-        context = latents[:, :, :n, :, :]
-        target  = latents[:, :, n:, :, :]
-        return context, target
+        T = latents.shape[2]
+        n_ctx = int(self.num_context_latents)
+        n_tgt = int(self.num_target_latents)
+
+        if n_ctx < 1 or n_ctx >= T:
+            raise ValueError(f"`num_context_latents` must be in [1, {T-1}]")
+        if n_ctx + n_tgt != T:
+            raise ValueError(f"`num_context_latents + num_target_latents` must equal {T}")
+
+        ctx = latents[:, :, :n_ctx]
+        tgt = latents[:, :, n_ctx:]
+        return ctx, tgt
 
     # ------------------------------
     # Embedding helpers
     # ------------------------------
-    def norm_embeddings(
-        self, latents: torch.Tensor
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        """Apply optional normalization to encoder embeddings.
-
-        Returns the normalized latents and a dict with L1/L2 norms of the
-        original latents for monitoring purposes.
-        """
-
-        norms = {
-            "l1": LA.vector_norm(latents, ord=1, dim=1),
-            "l2": LA.vector_norm(latents, ord=2, dim=1),
-        }
+    def norm_embeddings(self, latents: torch.Tensor) -> torch.Tensor:
+        """Apply optional normalization to encoder embeddings and return latents only."""
 
         if self.embedding_norm == "none":
-            return latents, norms
+            return latents
         if self.embedding_norm == "l1":
-            latents = F.normalize(latents, p=1, dim=1)
-            return latents, norms
+            return F.normalize(latents, p=1, dim=1)
         if self.embedding_norm == "l2":
-            latents = F.normalize(latents, p=2, dim=1)
-            return latents, norms
+            return F.normalize(latents, p=2, dim=1)
         if self.embedding_norm == "layer":
             mean = latents.mean(dim=1, keepdim=True)
             std = latents.std(dim=1, keepdim=True, unbiased=False)
-            latents = (latents - mean) / (std + 1e-5)
-            return latents, norms
+            return (latents - mean) / (std + 1e-5)
         raise ValueError(
             f"Unknown embedding norm '{self.embedding_norm}'. Expected one of ['none','l1','l2','layer']"
         )
@@ -219,9 +224,9 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
         # Flow-specific knobs
         self.num_train_timesteps = int(config.MODEL.NUM_TRAIN_TIMESTEPS)
 
-    def forward(self, batch: Dict[str, Any], return_norms: bool = False):
+    def forward(self, batch: Dict[str, Any]):
         latents = self.encode_video_with_backbone(batch)  # [B, D, T, H, W]
-        latents, norms = self.norm_embeddings(latents)
+        latents = self.norm_embeddings(latents)
         context_latents, target_latents = self.split_latents(latents)
 
         # Flatten tokens: [B, (T*H*W), D]
@@ -236,8 +241,6 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
         timesteps = t * self.num_train_timesteps
 
         prediction = self.flow_transformer(context_latents, xt, timesteps)  # predict velocity
-        if return_norms:
-            return prediction, velocity, norms
         return prediction, velocity
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
@@ -252,10 +255,9 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
         self.predictor = PredictorTransformer(**dit_cfg)
 
-    def forward(self, batch: Dict[str, Any], return_norms: bool = False):
+    def forward(self, batch: Dict[str, Any]):
         latents = self.encode_video_with_backbone(batch)  # [B, D, T, H, W]
-
-        latents, norms = self.norm_embeddings(latents)
+        latents = self.norm_embeddings(latents)
 
         context_latents, target_latents = self.split_latents(latents)
 
@@ -263,8 +265,6 @@ class DeterministicLatentVideoModel(LatentVideoBase):
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
 
         prediction = self.predictor(context_latents)  # direct next-token prediction
-        if return_norms:
-            return prediction, target_latents, norms
         return prediction, target_latents
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
@@ -283,25 +283,28 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
         self.predictor = PredictorTransformerCrossAttention(**dit_cfg)
 
-    def forward(self, batch: Dict[str, Any], return_norms: bool = False):
+        # hardcode for now, make dynamic later
+        D = 1024
+        T = int(config.MODEL.NUM_TARGET_LATENTS)
+        H = 16
+        W = 16
+        target_queries = nn.Parameter(torch.randn(1, T * H * W, D))
+        self.register_parameter("target_queries", target_queries)
+
+    def forward(self, batch: Dict[str, Any]):
         latents = self.encode_video_with_backbone(batch)  # [B, D, T, H, W]
+        latents = self.norm_embeddings(latents)
 
-        latents, norms = self.norm_embeddings(latents)
-
-        context_latents, target_latents = self.split_latents(latents)
+        context_latents, target_latents = self.split_latents(latents) # [B, D, T_context, H, W] and [B, D, T_target, H, W]
 
         # Flatten tokens: [B, (T*H*W), D]
         context_latents = rearrange(context_latents, "b d t h w -> b (t h w) d")
         target_latents  = rearrange(target_latents,  "b d t h w -> b (t h w) d")
 
-        # Use zero-initialised queries with the same shape as targets.
-        # This provides a query slot per target token which is refined via
-        # self-attention and cross-attention over the context tokens.
-        target_queries = torch.zeros_like(target_latents)
+        # get the target queries and repeat for batch size
+        target_queries = self.target_queries.repeat(context_latents.shape[0], 1, 1)  # [B, (T*H*W), D]
 
         prediction = self.predictor(context_latents, target_queries)
-        if return_norms:
-            return prediction, target_latents, norms
         return prediction, target_latents
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list

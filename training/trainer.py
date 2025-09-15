@@ -244,11 +244,7 @@ class Trainer:
         self.state.increment_micro_step()
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
-                outputs = self.model(batch, return_norms=self.debug)
-                if self.debug:
-                    prediction, target, norms = outputs
-                else:
-                    prediction, target = outputs
+                prediction, target = self.model(batch)
                 loss = self.criterion(prediction, target)
             self.check_loss_is_finite(loss)
             self.accelerator.backward(loss)
@@ -481,8 +477,7 @@ class Trainer:
             )
         self.model.eval()
         with self.accelerator.autocast():
-            outputs = self.model(batch, return_norms=False)
-            prediction, target = outputs
+            prediction, target = self.model(batch)
             loss = self.criterion(prediction, target)
         # Return plain float for lightweight local accumulation
         value = float(loss.detach().item())
@@ -580,8 +575,7 @@ class Trainer:
                 save_mp4_video(frames_per_sample, out_path, fps=fps, logger=self.logger)
 
             with self.accelerator.autocast():
-                outputs = self.model(batch, return_norms=False)
-                prediction, target = outputs
+                prediction, target = self.model(batch)
         finally:
             # Restore previous Matplotlib animation logger level
             mpl_logger.setLevel(_prev_mpl_level)

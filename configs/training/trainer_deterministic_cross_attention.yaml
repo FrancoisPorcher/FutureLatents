@@ -23,6 +23,7 @@ trainer:
 model:
   type: deterministic_cross_attention
   num_context_latents: 16
+  num_target_latents: 16
   dit:
     input_dim: 1024
     hidden_dim: 1024
@@ -30,4 +31,3 @@ model:
     num_heads: 8
     mlp_ratio: 4.0
     gradient_checkpointing: false
-
