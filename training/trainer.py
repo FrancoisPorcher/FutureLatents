@@ -24,7 +24,7 @@ from .losses import get_criterion
 from utils.video import (
     convert_video_tensor_to_mp4,
     save_mp4_video,
-    save_tensor,
+    save_visualisation_tensors,
 )
 
 @dataclass
@@ -564,31 +564,31 @@ class Trainer:
         _prev_mpl_level = mpl_logger.level
         mpl_logger.setLevel(logging.WARNING)
         num_examples = 0
-        try:
-            example_idx = 0
-            for batch in self.visualisation_dataloader:
-                videos = batch["video"]
-                with self.accelerator.autocast():
-                    pred_latents, _, context_latents, target_latents = self.model(batch)
+        example_idx = 0
+        for batch in self.visualisation_dataloader:
+            videos = batch["video"]
+            with self.accelerator.autocast():
+                pred_latents, _, context_latents, target_latents = self.model(batch)
 
-                for b in range(videos.shape[0]):
-                    example_dir = self.dump_dir / f"example_{example_idx:02d}"
-                    example_dir.mkdir(parents=True, exist_ok=True)
+            for b in range(videos.shape[0]):
+                example_dir = self.dump_dir / f"example_{example_idx:02d}"
+                example_dir.mkdir(parents=True, exist_ok=True)
 
-                    video = videos[b].detach().cpu()
-                    save_tensor(video, example_dir / "video.pt", logger=self.logger)
-                    frames, fps = convert_video_tensor_to_mp4(video)
-                    save_mp4_video(frames, example_dir / "video", fps=fps, logger=self.logger)
+                video = videos[b].detach().cpu()
+                frames, fps = convert_video_tensor_to_mp4(video)
+                save_mp4_video(frames, example_dir / "video", fps=fps, logger=self.logger)
+                save_visualisation_tensors(
+                    video,
+                    context_latents[b],
+                    target_latents[b],
+                    pred_latents[b],
+                    example_dir,
+                    logger=self.logger,
+                )
 
-                    save_tensor(context_latents[b], example_dir / "context_latents.pt", logger=self.logger)
-                    save_tensor(target_latents[b], example_dir / "target_latents.pt", logger=self.logger)
-                    save_tensor(pred_latents[b], example_dir / "prediction_latents.pt", logger=self.logger)
-
-                    example_idx += 1
-                    num_examples += 1
-        finally:
-            # Restore previous Matplotlib animation logger level
-            mpl_logger.setLevel(_prev_mpl_level)
+                example_idx += 1
+                num_examples += 1
+        mpl_logger.setLevel(_prev_mpl_level)
         if self.accelerator.is_main_process:
             self.logger.info(
                 "End run_visualisation (epoch=%d, files=%d)",
