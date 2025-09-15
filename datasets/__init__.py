@@ -17,7 +17,7 @@ _DATASETS = {
     # Backward-compatible name for the video variant
     "synthetic_bouncing_shapes": SyntheticBouncingShapesVideo,
     # Explicit image variant (single-frame clips)
-    "synthetic_bouncing_shapes_image": SyntheticBouncingShapesImage,
+    "synthetic_bouncing_shapes_images": SyntheticBouncingShapesImage,
 }
 
 
@@ -34,8 +34,8 @@ def build_dataset(config: DictConfig, split: str = "train"):
         elif dataset_name == 'synthetic_bouncing_shapes':
             config_sbs = config_datasets_train.SYNTHETIC_BOUNCING_SHAPES
             dataset = SyntheticBouncingShapesVideo(config_sbs)
-        elif dataset_name == 'synthetic_bouncing_shapes_image':
-            config_sbs_img = config_datasets_train.SYNTHETIC_BOUNCING_SHAPES_IMAGE
+        elif dataset_name == 'synthetic_bouncing_shapes_images':
+            config_sbs_img = config_datasets_train.SYNTHETIC_BOUNCING_SHAPES_IMAGES
             dataset = SyntheticBouncingShapesImage(config_sbs_img)
         return dataset
     elif split=='val':
@@ -50,8 +50,8 @@ def build_dataset(config: DictConfig, split: str = "train"):
         elif dataset_name == 'synthetic_bouncing_shapes':
             config_sbs = config_datasets_val.SYNTHETIC_BOUNCING_SHAPES
             dataset = SyntheticBouncingShapesVideo(config_sbs)
-        elif dataset_name == 'synthetic_bouncing_shapes_image':
-            config_sbs_img = config_datasets_val.SYNTHETIC_BOUNCING_SHAPES_IMAGE
+        elif dataset_name == 'synthetic_bouncing_shapes_images':
+            config_sbs_img = config_datasets_val.SYNTHETIC_BOUNCING_SHAPES_IMAGES
             dataset = SyntheticBouncingShapesImage(config_sbs_img)
         return dataset
     elif split=='visualisation':
@@ -60,8 +60,8 @@ def build_dataset(config: DictConfig, split: str = "train"):
         if dataset_name == 'synthetic_bouncing_shapes':
             config_synthetic_bouncing_shapes = config_datasets_visualisation.SYNTHETIC_BOUNCING_SHAPES
             dataset = SyntheticBouncingShapesVideo(config_synthetic_bouncing_shapes)
-        elif dataset_name == 'synthetic_bouncing_shapes_image':
-            config_synthetic_bouncing_shapes_image = config_datasets_visualisation.SYNTHETIC_BOUNCING_SHAPES_IMAGE
-            dataset = SyntheticBouncingShapesImage(config_synthetic_bouncing_shapes_image)
+        elif dataset_name == 'synthetic_bouncing_shapes_images':
+            config_synthetic_bouncing_shapes_images = config_datasets_visualisation.SYNTHETIC_BOUNCING_SHAPES_IMAGES
+            dataset = SyntheticBouncingShapesImage(config_synthetic_bouncing_shapes_images)
         return dataset
     
