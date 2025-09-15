@@ -24,7 +24,7 @@ from .losses import get_criterion
 from utils.video import (
     convert_video_tensor_to_mp4,
     save_mp4_video,
-    save_video_tensor,
+    save_tensor,
 )
 
 @dataclass
@@ -473,8 +473,8 @@ class Trainer:
         Returns
         -------
         tuple
-            (loss, prediction, target_latents, context_latents), where ``loss``
-            is returned as a plain float for lightweight accumulation.
+            (loss, pred_latents, target_latents, context_latents), where
+            ``loss`` is returned as a plain float for lightweight accumulation.
         """
         if self.accelerator.is_main_process:
             self.logger.debug(
@@ -483,8 +483,8 @@ class Trainer:
             )
         self.model.eval()
         with self.accelerator.autocast():
-            prediction, target, context_latents, target_latents = self.model(batch)
-            loss = self.criterion(prediction, target)
+            pred_latents, target, context_latents, target_latents = self.model(batch)
+            loss = self.criterion(pred_latents, target)
         value = float(loss.detach().item())
         if self.accelerator.is_main_process:
             self.logger.debug(
@@ -492,7 +492,7 @@ class Trainer:
                 self.state.epoch,
                 value,
             )
-        return value, prediction, target_latents, context_latents
+        return value, pred_latents, target_latents, context_latents
     
     @torch.inference_mode()
     def run_evaluation(self) -> Optional[float]:
@@ -533,23 +533,9 @@ class Trainer:
         )
 
         for batch_idx, batch in enumerate(progress_bar):
-            batch_loss, prediction, target_latents, context_latents = self.run_evaluation_step(batch)
+            batch_loss, _, _, _ = self.run_evaluation_step(batch)
             total_loss_local += batch_loss
             num_batches_local += 1
-            if self.accelerator.is_main_process and self.dump_dir is not None:
-                for i in range(prediction.shape[0]):
-                    out_path = (
-                        self.dump_dir
-                        / f"eval_latents_epoch_{self.state.epoch:02d}_batch{batch_idx:04d}_sample{i:02d}.pt"
-                    )
-                    torch.save(
-                        {
-                            "context_latents": context_latents[i].detach().cpu(),
-                            "target_latents": target_latents[i].detach().cpu(),
-                            "prediction_latents": prediction[i].detach().cpu(),
-                        },
-                        out_path,
-                    )
             mean_so_far = total_loss_local / max(num_batches_local, 1)
             progress_bar.set_postfix({f"{self.criterion_name}_loss": mean_so_far}, refresh=False)
 
@@ -563,7 +549,7 @@ class Trainer:
     # ------------------------------------------------------------------
     @torch.inference_mode()
     def run_visualisation(self) -> None:
-        """Placeholder for visualisation hook (no-op for now)."""
+        """Export videos and latents for visual inspection."""
         if self.accelerator.is_main_process:
             self.logger.info(
                 "Begin run_visualisation (epoch=%d, step=%d)",
@@ -577,23 +563,29 @@ class Trainer:
         mpl_logger = logging.getLogger("matplotlib.animation")
         _prev_mpl_level = mpl_logger.level
         mpl_logger.setLevel(logging.WARNING)
-        num_saved = 0
+        num_examples = 0
         try:
-            for i, batch in enumerate(self.visualisation_dataloader):
-                video_tensor = batch["video"]
-                video_to_save = video_tensor.detach().cpu()
-                out_path = self.dump_dir / f"video_tensor_bouncing_shapes_epoch_{self.state.epoch:02d}_batch{i:02d}.pt"
+            example_idx = 0
+            for batch in self.visualisation_dataloader:
+                videos = batch["video"]
+                with self.accelerator.autocast():
+                    pred_latents, _, context_latents, target_latents = self.model(batch)
 
-                # Save tensor and log inside utility
-                save_video_tensor(video_to_save, out_path, logger=self.logger)
-                num_saved += 1
+                for b in range(videos.shape[0]):
+                    example_dir = self.dump_dir / f"example_{example_idx:02d}"
+                    example_dir.mkdir(parents=True, exist_ok=True)
 
-                # Convert to frames and write MP4(s), with logging inside utilities
-                frames_per_sample, fps = convert_video_tensor_to_mp4(video_to_save)
-                save_mp4_video(frames_per_sample, out_path, fps=fps, logger=self.logger)
+                    video = videos[b].detach().cpu()
+                    save_tensor(video, example_dir / "video.pt", logger=self.logger)
+                    frames, fps = convert_video_tensor_to_mp4(video)
+                    save_mp4_video(frames, example_dir / "video", fps=fps, logger=self.logger)
 
-            with self.accelerator.autocast():
-                prediction, target, _, _ = self.model(batch)
+                    save_tensor(context_latents[b], example_dir / "context_latents.pt", logger=self.logger)
+                    save_tensor(target_latents[b], example_dir / "target_latents.pt", logger=self.logger)
+                    save_tensor(pred_latents[b], example_dir / "prediction_latents.pt", logger=self.logger)
+
+                    example_idx += 1
+                    num_examples += 1
         finally:
             # Restore previous Matplotlib animation logger level
             mpl_logger.setLevel(_prev_mpl_level)
@@ -601,7 +593,7 @@ class Trainer:
             self.logger.info(
                 "End run_visualisation (epoch=%d, files=%d)",
                 self.state.epoch,
-                num_saved,
+                num_examples,
             )
     # ------------------------------------------------------------------
     # Checkpoint utilities
