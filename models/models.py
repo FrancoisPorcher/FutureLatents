@@ -13,6 +13,7 @@ from einops import rearrange
 from .backbone import build_backbone
 
 from .DiT import DiT, PredictorTransformer, PredictorTransformerCrossAttention
+from utils.latents import infer_latent_dimensions
 
 logger = logging.getLogger(__name__)
 
@@ -283,11 +284,11 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
         self.predictor = PredictorTransformerCrossAttention(**dit_cfg)
 
-        # hardcode for now, make dynamic later
-        D = 1024
-        T = int(config.MODEL.NUM_TARGET_LATENTS)
-        H = 16
-        W = 16
+        # Initialise target queries based on latent dimensions
+        _, num_target_latents, spatial = infer_latent_dimensions(config)
+        D = int(config.MODEL.DIT.INPUT_DIM)
+        T = int(num_target_latents)
+        H = W = int(spatial)
         target_queries = nn.Parameter(torch.randn(1, T * H * W, D))
         self.register_parameter("target_queries", target_queries)
 
