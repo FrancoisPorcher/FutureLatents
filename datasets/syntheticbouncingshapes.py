@@ -52,8 +52,15 @@ class SyntheticBouncingShapes(Dataset):
         )
         self.disk_radius = int(config.DISK_RADIUS)
 
-        # Randomness source: use torch.Generator for reproducibility if desired
-        self._rng = np.random.RandomState()
+        # Randomness source
+        #
+        # We intentionally rely on NumPy's *global* RNG rather than keeping a
+        # ``RandomState`` instance on the dataset.  PyTorch's ``DataLoader``
+        # automatically seeds the global NumPy generator for each worker.  A
+        # per-instance ``RandomState`` would be cloned with identical state in
+        # every worker process, producing the exact same "random" video on
+        # different workers.  Using the global RNG avoids this behaviour while
+        # still allowing users to control determinism via ``numpy.random.seed``.
 
     def __len__(self) -> int:
         return self.length
@@ -87,14 +94,18 @@ class SyntheticBouncingShapes(Dataset):
         # Sample random initial square position uniformly in the valid range
         xmin, ymin = 0.0, 0.0
         xmax, ymax = float(size - sq), float(size - sq)
-        x = float(self._rng.uniform(xmin, xmax))
-        y = float(self._rng.uniform(ymin, ymax))
+        # Sample random initial square position uniformly in the valid range.
+        #
+        # ``numpy.random`` is seeded automatically for each ``DataLoader``
+        # worker, ensuring different workers generate independent sequences.
+        x = float(np.random.uniform(xmin, xmax))
+        y = float(np.random.uniform(ymin, ymax))
         vx, vy = self.square_vel
 
         cx0, cy0 = size / 2.0, size / 2.0
         R = (size / 2.0) - r - 8.0  # keep disk within borders
         # Random initial phase for the circular trajectory
-        theta0 = float(self._rng.uniform(0.0, 2 * np.pi))
+        theta0 = float(np.random.uniform(0.0, 2 * np.pi))
 
         frames: list[Image.Image] = []
         for t in range(T):
