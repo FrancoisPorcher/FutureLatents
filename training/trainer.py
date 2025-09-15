@@ -246,7 +246,7 @@ class Trainer:
         self.state.increment_micro_step()
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
-                prediction, target = self.model(batch)
+                prediction, target, _, _ = self.model(batch)
                 loss = self.criterion(prediction, target)
             self.check_loss_is_finite(loss)
             self.accelerator.backward(loss)
@@ -467,10 +467,14 @@ class Trainer:
     # Evaluation
     # ------------------------------------------------------------------
     @torch.no_grad()
-    def run_evaluation_step(self, batch: dict) -> float:
-        """Compute loss for a single validation batch.
+    def run_evaluation_step(self, batch: dict) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Compute loss and gather latents for a single validation batch.
 
-        Returns the scalar loss value (local process only; no gathering).
+        Returns
+        -------
+        tuple
+            (loss, prediction, target_latents, context_latents), where ``loss``
+            is returned as a plain float for lightweight accumulation.
         """
         if self.accelerator.is_main_process:
             self.logger.debug(
@@ -479,9 +483,8 @@ class Trainer:
             )
         self.model.eval()
         with self.accelerator.autocast():
-            prediction, target = self.model(batch)
+            prediction, target, context_latents, target_latents = self.model(batch)
             loss = self.criterion(prediction, target)
-        # Return plain float for lightweight local accumulation
         value = float(loss.detach().item())
         if self.accelerator.is_main_process:
             self.logger.debug(
@@ -489,7 +492,7 @@ class Trainer:
                 self.state.epoch,
                 value,
             )
-        return value
+        return value, prediction, target_latents, context_latents
     
     @torch.inference_mode()
     def run_evaluation(self) -> Optional[float]:
@@ -529,11 +532,24 @@ class Trainer:
             desc=f"Eval {self.state.epoch}",
         )
 
-        for batch in progress_bar:
-            batch_loss = self.run_evaluation_step(batch)
+        for batch_idx, batch in enumerate(progress_bar):
+            batch_loss, prediction, target_latents, context_latents = self.run_evaluation_step(batch)
             total_loss_local += batch_loss
             num_batches_local += 1
-            # Lightweight live display on the progress bar
+            if self.accelerator.is_main_process and self.dump_dir is not None:
+                for i in range(prediction.shape[0]):
+                    out_path = (
+                        self.dump_dir
+                        / f"eval_latents_epoch_{self.state.epoch:02d}_batch{batch_idx:04d}_sample{i:02d}.pt"
+                    )
+                    torch.save(
+                        {
+                            "context_latents": context_latents[i].detach().cpu(),
+                            "target_latents": target_latents[i].detach().cpu(),
+                            "prediction_latents": prediction[i].detach().cpu(),
+                        },
+                        out_path,
+                    )
             mean_so_far = total_loss_local / max(num_batches_local, 1)
             progress_bar.set_postfix({f"{self.criterion_name}_loss": mean_so_far}, refresh=False)
 
@@ -577,7 +593,7 @@ class Trainer:
                 save_mp4_video(frames_per_sample, out_path, fps=fps, logger=self.logger)
 
             with self.accelerator.autocast():
-                prediction, target = self.model(batch)
+                prediction, target, _, _ = self.model(batch)
         finally:
             # Restore previous Matplotlib animation logger level
             mpl_logger.setLevel(_prev_mpl_level)
