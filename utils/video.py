@@ -10,21 +10,21 @@ import numpy as np
 import torch
 
 
-def save_video_tensor(
-    video_tensor: torch.Tensor,
+def save_tensor(
+    tensor: torch.Tensor,
     out_path: Path | str,
     logger: Optional[logging.Logger] = None,
 ) -> Path:
-    """Save a video tensor to ``.pt`` and log the event.
+    """Save a tensor to ``.pt`` and log the event.
 
     - Accepts tensors shaped ``[T,C,H,W]`` or ``[B,T,C,H,W]`` (or any tensor).
     - Detaches and moves to CPU before saving for portability.
     """
     path = Path(out_path)
-    vt = video_tensor.detach().cpu()
-    torch.save(vt, path)
+    t = tensor.detach().cpu()
+    torch.save(t, path)
     if logger is not None:
-        logger.info("Saved tensor -> %s [shape=%s]", str(path), str(tuple(vt.shape)))
+        logger.info("Saved tensor -> %s [shape=%s]", str(path), str(tuple(t.shape)))
     return path
 
 
