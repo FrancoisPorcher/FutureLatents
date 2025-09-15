@@ -14,6 +14,8 @@ from .backbone import build_backbone
 
 from .DiT import DiT, PredictorTransformer, PredictorTransformerCrossAttention
 
+from utils.latents import infer_latent_dimensions
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,21 +66,7 @@ class LatentVideoBase(nn.Module):
         n = sum(p.numel() for p in self.parameters() if p.requires_grad)
         logger.info("Trainable parameters: %.2fM", n / 1e6)
         return n
-    
-    def infer_latent_shape_from_config(self):
-        patch_size = 16
-        # get the img_size from the backbone config
-        
-        # compute then number of patches on H
-        
-        # compute the number of patches in W
-        
-        # get the stride from the video config
-        
-        # get the number of frames from the video config
-        
-        # deduce the number of frames after striding
-        breakpoint()
+
 
     # ------------------------------
     # Forward helpers
@@ -283,11 +271,8 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         dit_cfg = {k.lower(): v for k, v in config.MODEL.DIT.items()}
         self.predictor = PredictorTransformerCrossAttention(**dit_cfg)
 
-        # hardcode for now, make dynamic later
-        D = 1024
-        T = int(config.MODEL.NUM_TARGET_LATENTS)
-        H = 16
-        W = 16
+        T_latent, H_latent, W_latent = infer_latent_dimensions(config)
+        breakpoint()
         target_queries = nn.Parameter(torch.randn(1, T * H * W, D))
         self.register_parameter("target_queries", target_queries)
 
