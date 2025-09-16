@@ -3,9 +3,10 @@
 - ``SyntheticBouncingShapesVideo``: generates short synthetic videos with two
   moving shapes (a red square bouncing on borders, and a blue disk following a
   circular trajectory). Frames are returned as uint8 ``[T, C, H, W]``.
-- ``SyntheticBouncingShapesImage``: generates single images where the square
-  and disk are placed at random valid positions. Returns a single-frame video
-  tensor ``[1, C, H, W]`` for compatibility.
+- ``SyntheticBouncingShapesImage``: generates single RGB images where the
+  square and disk are placed at random valid positions. Returned samples expose
+  an ``"image"`` tensor with shape ``[C, H, W]`` alongside supervision
+  metadata.
 """
 
 from __future__ import annotations
@@ -183,8 +184,9 @@ class SyntheticBouncingShapesImage(Dataset):
     """Dataset producing single-frame images with randomly placed shapes.
 
     The square and disk are positioned uniformly at random within valid
-    borders so that the full shapes fit inside the image. Returned sample
-    mirrors the video dataset structure for compatibility, using ``T=1``.
+    borders so that the full shapes fit inside the image. Returned samples
+    contain an ``image`` tensor (``[C, H, W]`` uint8) together with absolute
+    pixel centers for each shape.
 
     Expected config keys (after uppercasing by the loader):
     - ``LENGTH``: number of samples to expose via ``__len__``
@@ -206,21 +208,19 @@ class SyntheticBouncingShapesImage(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         sample = self._generate_image_random()
-        video = sample["video"]  # [1, C, H, W]
-        centers_px = sample["centers_px"]  # dict[name]->[1,2]
-        t, c, h, w = video.shape
+        image = sample["image"]  # [C, H, W]
+        centers_px = sample["centers_px"]  # dict[name]->[2]
+        c, h, w = image.shape
         return {
-            "video": video,               # [1, C, H, W] uint8 for compatibility
+            "image": image,               # [C, H, W] uint8 image tensor
             "index": idx,
             "label": "synthetic_random_shapes_image",
-            "video_path": "synthetic://random_square_circle_image",
-            "n_frames_original_video": t,
-            "n_frames": t,
-            "C_original": c,
-            "H_original": h,
-            "W_original": w,
+            "image_path": "synthetic://random_square_circle_image",
+            "channels": c,
+            "height": h,
+            "width": w,
             "padded": False,
-            # Supervision targets: absolute pixel centers per frame [T,2]
+            # Supervision targets: absolute pixel centers (x, y)
             "centers_px": centers_px,
         }
 
@@ -258,18 +258,18 @@ class SyntheticBouncingShapesImage(Dataset):
         cxi = int(np.clip(cxi, 0, size - 1))
         cyi = int(np.clip(cyi, 0, size - 1))
 
-        # Convert to tensor with T=1
+        # Convert to tensor [C, H, W]
         arr = np.array(img, dtype=np.uint8)  # [H, W, C]
-        tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).contiguous()  # [1,C,H,W]
+        tensor = torch.from_numpy(arr).permute(2, 0, 1).contiguous()  # [C,H,W]
 
         centers_px: Dict[str, torch.Tensor] = {
-            "square": torch.tensor([[square_cx, square_cy]], dtype=torch.int64),
-            "disk": torch.tensor([[cxi, cyi]], dtype=torch.int64),
+            "square": torch.tensor([square_cx, square_cy], dtype=torch.int64),
+            "disk": torch.tensor([cxi, cyi], dtype=torch.int64),
         }
 
         return {
-            "image": tensor,           # [1, C, H, W] uint8
-            "centers_px": centers_px, # dict[name]->[1,2]
+            "image": tensor,           # [C, H, W] uint8
+            "centers_px": centers_px, # dict[name]->[2]
         }
 
 

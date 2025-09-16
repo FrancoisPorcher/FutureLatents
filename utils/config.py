@@ -53,9 +53,3 @@ def load_config(path: Path) -> DictConfig:
         merged = _merge_with_conflict(merged, sub_cfg)
     merged = _merge_with_conflict(merged, cfg)
     return merged
-
-
-def print_config(config: DictConfig) -> str:
-    """Return the resolved configuration in YAML format (no printing)."""
-    yaml_str = OmegaConf.to_yaml(config)
-    return yaml_str
