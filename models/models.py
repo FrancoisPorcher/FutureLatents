@@ -39,7 +39,11 @@ class LatentVideoBase(nn.Module):
         # --- Shared knobs ---
         self.num_context_latents = config.MODEL.NUM_CONTEXT_LATENTS
         self.num_target_latents = config.MODEL.NUM_TARGET_LATENTS
-        self.embedding_norm = config.TRAINER.TRAINING.EMBEDDING_NORM.lower()
+        
+        if config.TRAINER.TRAINING.EMBEDDING_NORM is not None:
+            self.embedding_norm = config.TRAINER.TRAINING.EMBEDDING_NORM.lower()
+        else:
+            self.embedding_norm = config.TRAINER.TRAINING.EMBEDDING_NORM
 
         # --- Encoder freeze policy ---
         self.set_encoder_trainable(config.ENCODER_TRAINABLE)
@@ -166,6 +170,53 @@ class LatentVideoBase(nn.Module):
             )
 
         raise ValueError("`inputs` must contain either 'video' or 'embedding'")
+    
+    def encode_image_with_backbone(self, inputs: Dict[str, Any]) -> torch.Tensor:
+        if "image" not in inputs:
+            raise ValueError("Missing 'image' in inputs for DINOv3 forward")
+        
+        if self.encoder is None or self.preprocessor is None:
+            raise ValueError("`image` provided but no encoder is initialised")
+        
+        
+        if self.backbone_type == "dinov3":
+            return self._forward_image_dinov3(inputs)
+        
+    def _forward_image_dinov3(self, inputs: Dict[str, Any]) -> torch.Tensor:
+        """Encode a batch of images using a DINOv3 image backbone.
+
+        DINOv3 operates on individual images, so we flatten the temporal
+        dimension and treat all frames across the batch as a single batch of
+        images.  The resulting features are reshaped back to the
+        ``[B, D, H, W]`` layout expected by the rest of the model.
+        """
+
+        image = inputs["image"]
+        if image.dim() == 3:  # allow [C, H, W] without batch dim
+            image = image.unsqueeze(0)
+
+        # Process all selected frames in one pass
+        processed = self.preprocessor(images=image, return_tensors="pt")
+        pixel_values = processed["pixel_values"]
+
+        # Ensure inputs match the encoder's device and dtype to avoid
+        # mixed-precision dtype mismatches under autocast.
+        enc_param = next(self.encoder.parameters())
+        pixel_values = pixel_values.to(device=enc_param.device, dtype=enc_param.dtype, non_blocking=True)
+
+        with torch.inference_mode():
+            outputs = self.encoder(pixel_values)
+            hs = outputs.last_hidden_state[:, 5:, :]  # discard global tokens
+
+        spatial_tokens = hs.shape[1]
+        side = int(spatial_tokens ** 0.5)
+        if side * side != spatial_tokens:  # pragma: no cover - sanity check
+            raise ValueError("DINOv3 returned non-square token grid")
+
+        feats = rearrange(
+            hs, "b (h w) d -> b d h w", h=side, w=side
+        )
+        return feats
 
     def split_latents(self, latents: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         T = latents.shape[2]
@@ -300,6 +351,18 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
 
     def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
         yield from [m for m in [self.encoder, self.predictor] if m is not None]
+        
+        
+class PositionPredictor(LatentVideoBase):
+    """Locator model for the bouncing shapes dataset."""
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        super().__init__(config)
+
+    def forward(self, batch: Dict[str, Any]):
+        pass
+
+
 
 
 __all__ = [
@@ -307,4 +370,5 @@ __all__ = [
     "FlowMatchingLatentVideoModel",
     "DeterministicLatentVideoModel",
     "DeterministicCrossAttentionLatentVideoModel",
+    "PositionPredictor",
 ]

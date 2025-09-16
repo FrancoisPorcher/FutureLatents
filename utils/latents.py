@@ -15,12 +15,12 @@ def infer_latent_dimensions(cfg: DictConfig) -> tuple[int, int, int]:
     number of spatial tokens along a single dimension (height/width).
     """
     model_cfg = cfg["MODEL"]
-    n_context = int(model_cfg["NUM_CONTEXT_LATENTS"])
-    n_target = int(model_cfg["NUM_TARGET_LATENTS"])
+    n_context = model_cfg["NUM_CONTEXT_LATENTS"]
+    n_target = model_cfg["NUM_TARGET_LATENTS"]
 
     backbone_cfg = cfg["BACKBONE"]
-    image_size = int(backbone_cfg["IMAGE_SIZE"])
-    patch_size = int(backbone_cfg["PATCH_SIZE"])
+    image_size = backbone_cfg["IMAGE_SIZE"]
+    patch_size = backbone_cfg["PATCH_SIZE"]
     spatial = image_size // patch_size
 
     return n_context, n_target, spatial

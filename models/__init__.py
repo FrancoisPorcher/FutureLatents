@@ -5,6 +5,7 @@ from .models import (
     FlowMatchingLatentVideoModel,
     DeterministicLatentVideoModel,
     DeterministicCrossAttentionLatentVideoModel,
+    PositionPredictor,
 )
 
 
@@ -16,6 +17,7 @@ def build_model(config):
         "flow_matching": FlowMatchingLatentVideoModel,
         "deterministic": DeterministicLatentVideoModel,
         "deterministic_cross_attention": DeterministicCrossAttentionLatentVideoModel,
+        "locator": PositionPredictor
     }
     try:
         model_cls = models[model_type]
@@ -31,5 +33,6 @@ __all__ = [
     "FlowMatchingLatentVideoModel",
     "DeterministicLatentVideoModel",
     "DeterministicCrossAttentionLatentVideoModel",
+    "PositionPredictor",
     "build_model",
 ]

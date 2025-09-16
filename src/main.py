@@ -3,10 +3,6 @@ import logging
 import shutil
 import torch
 import wandb
-
-# Import the project package relative to this module so that running
-# ``python -m src.main`` works without requiring ``src`` on the
-# ``PYTHONPATH``.
 from models import build_model
 from datasets import build_dataset
 from training import build_trainer
@@ -25,6 +21,9 @@ def main() -> None:
     config_path = Path(args.config_path)
     config = load_config(config_path)
     config_name = config_path.stem
+    # resolve here
+    
+    # once resolved, log it
 
     # ------------------------------------------------------------------
     # Accelerator initialisation
@@ -47,7 +46,6 @@ def main() -> None:
         ],
     )
     if accelerator.device.type == "cuda":
-        # Ensure a concrete CUDA device index is selected
         device_index = accelerator.device.index
         if device_index is None:
             device_index = 0
@@ -69,13 +67,20 @@ def main() -> None:
     else:
         experiment_root = project_root / "experiment" / config_name
     overwrite_experiment = experiment_root.exists()
-    # When overwriting, remove the entire folder (no distinctions), unless debug.
     if accelerator.is_main_process:
         if overwrite_experiment:
             print("Overwriting experiment", experiment_root)
             shutil.rmtree(experiment_root)
         dirs = make_experiment_dirs(experiment_root)
-    accelerator.wait_for_everyone()
+    log_file = dirs.logs_dir / "train.log"
+    if accelerator.is_main_process:
+        # Always log to both console and file, regardless of debug mode
+        logging.basicConfig(
+            level=logging.INFO,
+            handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
+        )
+    else:
+        logging.basicConfig(level=logging.ERROR)
 
     train_dataset = build_dataset(config, split="train")
     val_dataset = build_dataset(config, split="val")
@@ -89,18 +94,16 @@ def main() -> None:
         train_dataset = torch.utils.data.Subset(train_dataset, range(DEBUG_TRAIN_STEPS))
         val_dataset = torch.utils.data.Subset(val_dataset, range(DEBUG_VAL_STEPS))
 
-    model = build_model(config)
-
-    learning_rate = float(config.TRAINER.TRAINING.LEARNING_RATE)
-    weight_decay = float(config.TRAINER.TRAINING.WEIGHT_DECAY)
+    learning_rate = config.TRAINER.TRAINING.LEARNING_RATE
+    weight_decay = config.TRAINER.TRAINING.WEIGHT_DECAY
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
 
-    num_workers = int(config.TRAINER.TRAINING.NUM_WORKERS)
-    train_batch_size = int(config.TRAINER.TRAINING.BATCH_SIZE_PER_GPU)
-    eval_batch_size = int(config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU)
+    num_workers = config.TRAINER.TRAINING.NUM_WORKERS
+    train_batch_size = config.TRAINER.TRAINING.BATCH_SIZE_PER_GPU
+    eval_batch_size = config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -115,22 +118,14 @@ def main() -> None:
         batch_size=eval_batch_size,
     )
     # Visualisation dataloader: use same num_workers and batch size from config
-    visualisation_batch_size = int(config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU)
+    visualisation_batch_size = config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU
     visualisation_dataloader = torch.utils.data.DataLoader(
         visualisation_dataset,
         shuffle=False,
         num_workers=num_workers,
         batch_size=visualisation_batch_size,
     )
-    log_file = dirs.logs_dir / "train.log"
-    if accelerator.is_main_process:
-        # Always log to both console and file, regardless of debug mode
-        logging.basicConfig(
-            level=logging.INFO,
-            handlers=[logging.StreamHandler(), logging.FileHandler(log_file)],
-        )
-    else:
-        logging.basicConfig(level=logging.ERROR)
+
     logger = logging.getLogger(__name__)
     if overwrite_experiment and accelerator.is_main_process:
         logger.info(

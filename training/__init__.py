@@ -13,6 +13,7 @@ from typing import Optional
 
 from .trainer import (
     DeterministicTrainer,
+    LocatorTrainer,
     Trainer,
     TrainState,
 )
@@ -53,11 +54,14 @@ def build_trainer(
     """
 
     trainer_type = str(config.MODEL.TYPE).lower()
-    trainer_cls = (
-        DeterministicTrainer
-        if trainer_type in {"deterministic", "deterministic_cross_attention"}
-        else Trainer
-    )
+    
+    if trainer_type in {"deterministic", "deterministic_cross_attention"}:
+        trainer_cls = DeterministicTrainer
+    elif trainer_type in {"locator"}:
+        trainer_cls = LocatorTrainer
+    else:
+        trainer_cls = Trainer
+
     return trainer_cls(
         model=model,
         optimizer=optimizer,
@@ -78,6 +82,7 @@ __all__ = [
     "Trainer",
     "TrainState",
     "DeterministicTrainer",
+    "LocatorTrainer",
     "get_criterion",
     "build_trainer",
 ]

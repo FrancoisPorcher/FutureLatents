@@ -14,10 +14,8 @@ from .syntheticbouncingshapes import (
 _DATASETS = {
     "kinetics_400": Kinetics400,
     "kinetics_400_cached": Kinetics400Cached,
-    # Backward-compatible name for the video variant
-    "synthetic_bouncing_shapes": SyntheticBouncingShapesVideo,
-    # Explicit image variant (single-frame clips)
-    "synthetic_bouncing_shapes_images": SyntheticBouncingShapesImage,
+    "synthetic_bouncing_shapes_video": SyntheticBouncingShapesVideo,
+    "synthetic_bouncing_shapes_image": SyntheticBouncingShapesImage,
 }
 
 
@@ -31,11 +29,11 @@ def build_dataset(config: DictConfig, split: str = "train"):
         elif dataset_name == 'kinetics_400_cached':
             config_kinetics_400_cached = config_datasets_train.KINETICS_400_CACHED
             dataset = Kinetics400Cached(config_kinetics_400_cached)
-        elif dataset_name == 'synthetic_bouncing_shapes':
-            config_sbs = config_datasets_train.SYNTHETIC_BOUNCING_SHAPES
+        elif dataset_name == 'synthetic_bouncing_shapes_video':
+            config_sbs = config_datasets_train.SYNTHETIC_BOUNCING_SHAPES_VIDEO
             dataset = SyntheticBouncingShapesVideo(config_sbs)
-        elif dataset_name == 'synthetic_bouncing_shapes_images':
-            config_sbs_img = config_datasets_train.SYNTHETIC_BOUNCING_SHAPES_IMAGES
+        elif dataset_name == 'synthetic_bouncing_shapes_image':
+            config_sbs_img = config_datasets_train.SYNTHETIC_BOUNCING_SHAPES_IMAGE
             dataset = SyntheticBouncingShapesImage(config_sbs_img)
         return dataset
     elif split=='val':
@@ -47,21 +45,21 @@ def build_dataset(config: DictConfig, split: str = "train"):
         elif dataset_name == 'kinetics_400_cached':
             config_kinetics_400_cached = config_datasets_val.KINETICS_400_CACHED
             dataset = Kinetics400Cached(config_kinetics_400_cached)
-        elif dataset_name == 'synthetic_bouncing_shapes':
-            config_sbs = config_datasets_val.SYNTHETIC_BOUNCING_SHAPES
+        elif dataset_name == 'synthetic_bouncing_shapes_video':
+            config_sbs = config_datasets_val.SYNTHETIC_BOUNCING_SHAPES_VIDEO
             dataset = SyntheticBouncingShapesVideo(config_sbs)
-        elif dataset_name == 'synthetic_bouncing_shapes_images':
-            config_sbs_img = config_datasets_val.SYNTHETIC_BOUNCING_SHAPES_IMAGES
+        elif dataset_name == 'synthetic_bouncing_shapes_image':
+            config_sbs_img = config_datasets_val.SYNTHETIC_BOUNCING_SHAPES_IMAGE
             dataset = SyntheticBouncingShapesImage(config_sbs_img)
         return dataset
     elif split=='visualisation':
         config_datasets_visualisation = config.DATASETS.VISUALISATION
         dataset_name = config_datasets_visualisation.NAME
-        if dataset_name == 'synthetic_bouncing_shapes':
-            config_synthetic_bouncing_shapes = config_datasets_visualisation.SYNTHETIC_BOUNCING_SHAPES
+        if dataset_name == 'synthetic_bouncing_shapes_video':
+            config_synthetic_bouncing_shapes = config_datasets_visualisation.SYNTHETIC_BOUNCING_SHAPES_VIDEO
             dataset = SyntheticBouncingShapesVideo(config_synthetic_bouncing_shapes)
-        elif dataset_name == 'synthetic_bouncing_shapes_images':
-            config_synthetic_bouncing_shapes_images = config_datasets_visualisation.SYNTHETIC_BOUNCING_SHAPES_IMAGES
-            dataset = SyntheticBouncingShapesImage(config_synthetic_bouncing_shapes_images)
+        elif dataset_name == 'synthetic_bouncing_shapes_image':
+            config_synthetic_bouncing_shapes_image = config_datasets_visualisation.SYNTHETIC_BOUNCING_SHAPES_IMAGE
+            dataset = SyntheticBouncingShapesImage(config_synthetic_bouncing_shapes_image)
         return dataset
     

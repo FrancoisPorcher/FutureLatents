@@ -155,17 +155,17 @@ class Trainer:
         self.eval_every = int(config.EVALUATION.EVAL_EVERY)
         self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
         # Global configuration
-        self.n_frames = int(config.N_FRAMES)
+        self.n_frames = config.N_FRAMES
         # Latent/layout dimensions inferred from full model config
         self.n_ctx_lat, self.n_tgt_lat, self.spatial = infer_latent_dimensions(self.model.config)
 
         # Training parameters
-        self.epochs = int(config.TRAINING.EPOCHS) if not self.debug else 1
+        self.epochs = config.TRAINING.EPOCHS if not self.debug else 1
         self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
         self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
         self.criterion_name = str(config.TRAINING.LOSS).lower()
         self.criterion = get_criterion(self.criterion_name)
-        self.save_every = int(config.TRAINING.SAVE_EVERY)
+        self.save_every = config.TRAINING.SAVE_EVERY
 
         # Event counters (reset each epoch)
         self._epoch_loss_nan_inf_count: int = 0
@@ -679,6 +679,39 @@ class DeterministicTrainer(Trainer):
             debug=debug,
             dump_dir=dump_dir,
         )
+        
+class LocatorTrainer(Trainer):
+    """Trainer variant for deterministic models."""
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        config: object,
+        train_dataloader: Optional[Iterable[dict]] = None,
+        val_dataloader: Optional[Iterable[dict]] = None,
+        visualisation_dataloader: Optional[Iterable[dict]] = None,
+        checkpoint_dir: Optional[Path] = None,
+        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+        accelerator: Optional[Accelerator] = None,
+        logger: Optional[logging.Logger] = None,
+        debug: bool = False,
+        dump_dir: Optional[Path] = None,
+    ) -> None:
+        super().__init__(
+            model=model,
+            optimizer=optimizer,
+            config=config,
+            train_dataloader=train_dataloader,
+            val_dataloader=val_dataloader,
+            visualisation_dataloader=visualisation_dataloader,
+            checkpoint_dir=checkpoint_dir,
+            scheduler=scheduler,
+            accelerator=accelerator,
+            logger=logger,
+            debug=debug,
+            dump_dir=dump_dir,
+        )
 
 
-__all__ = ["Trainer", "TrainState", "DeterministicTrainer"]
+__all__ = ["Trainer", "TrainState", "DeterministicTrainer", "LocatorTrainer"]

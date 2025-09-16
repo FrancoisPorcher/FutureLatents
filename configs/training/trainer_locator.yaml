@@ -1,0 +1,27 @@
+wandb: True
+encoder_trainable: false
+trainer:
+  n_frames: null
+  training:
+    learning_rate: 1e-3
+    weight_decay: 0.00
+    num_workers: 8
+    batch_size_per_gpu: 1
+    gradient_accumulation_steps: 1
+    find_unused_parameters: true
+    mixed_precision: fp16
+    max_grad_norm: null
+    max_grad_value: null
+    epochs: 10
+    embedding_norm: null
+    loss: mse
+    save_every: 1
+    checkpoint_dir: checkpoints
+  evaluation:
+    batch_size_per_gpu: 1
+    eval_every: 1
+    eval_first: true
+model:
+  type: locator
+  num_context_latents: null
+  num_target_latents: null
