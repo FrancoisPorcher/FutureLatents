@@ -62,11 +62,6 @@ class LatentVideoBase(nn.Module):
     def trainable_parameters(self) -> Iterable[nn.Parameter]:  # pragma: no cover
         return (p for p in self.parameters() if p.requires_grad)
 
-    def trainable_modules(self) -> Iterable[nn.Module]:  # pragma: no cover
-        # By default, everything with trainable params.
-        # Subclasses can override to expose a curated list.
-        yield from {m for m in self.modules() if any(p.requires_grad for p in m.parameters(recurse=False))}
-
     def count_parameters(self) -> int:
         n = sum(p.numel() for p in self.parameters() if p.requires_grad)
         logger.info("Trainable parameters: %.2fM", n / 1e6)
@@ -283,10 +278,6 @@ class FlowMatchingLatentVideoModel(LatentVideoBase):
         prediction = self.flow_transformer(context_latents, xt, timesteps)  # predict velocity
         return prediction, velocity, context_latents, target_latents
 
-    def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
-        yield from [m for m in [self.encoder, self.flow_transformer] if m is not None]
-
-
 class DeterministicLatentVideoModel(LatentVideoBase):
     """Predict future latent tokens directly (no time steps, no flow)."""
 
@@ -306,10 +297,6 @@ class DeterministicLatentVideoModel(LatentVideoBase):
 
         prediction = self.predictor(context_latents)  # direct next-token prediction
         return prediction, target_latents, context_latents, target_latents
-
-    def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
-        yield from [m for m in [self.encoder, self.predictor] if m is not None]
-
 
 class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
     """Predict future latent tokens via cross-attention to context.
@@ -349,10 +336,6 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         prediction = self.predictor(context_latents, target_queries)
         return prediction, target_latents, context_latents, target_latents
 
-    def trainable_modules(self) -> Iterable[nn.Module]:  # optional: curated list
-        yield from [m for m in [self.encoder, self.predictor] if m is not None]
-        
-        
 class PositionPredictor(LatentVideoBase):
     """Locator model for the bouncing shapes dataset."""
 
