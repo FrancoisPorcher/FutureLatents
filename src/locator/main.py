@@ -5,12 +5,13 @@ import torch
 import wandb
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
+from omegaconf import OmegaConf
 
 from models import build_model
 from datasets import build_dataset
 from training import build_trainer
 from utils.parser import create_parser
-from utils.config import load_config, print_config
+from utils.config import load_config
 from utils.filesystem import make_experiment_dirs
 
 
@@ -23,6 +24,7 @@ def main() -> None:
 
     config_path = Path(args.config_path)
     config = load_config(config_path)
+    OmegaConf.resolve(config)
     config_name = config_path.stem
     
     # ------------------------------------------------------------------
@@ -140,8 +142,8 @@ def main() -> None:
 
     if accelerator.is_main_process:
         model.count_parameters()
-        resolved_config = print_config(config)
-        logger.info(resolved_config)
+        resolved_config = OmegaConf.to_yaml(config)
+        logger.info("Resolved configuration:\n%s", resolved_config)
         resolved_config_path = dirs.config_dir / "resolved_config.yaml"
         resolved_config_path.write_text(resolved_config)
         if use_wandb:
