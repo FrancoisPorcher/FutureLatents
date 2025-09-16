@@ -109,12 +109,14 @@ def main() -> None:
         shuffle=True,
         num_workers=num_workers,
         batch_size=train_batch_size,
+        pin_memory=True,
     )
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset,
         shuffle=False,
         num_workers=num_workers,
         batch_size=eval_batch_size,
+        pin_memory=True,
     )
     # Visualisation dataloader: use same num_workers and batch size from config
     visualisation_batch_size = config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU
@@ -123,6 +125,7 @@ def main() -> None:
         shuffle=False,
         num_workers=num_workers,
         batch_size=visualisation_batch_size,
+        pin_memory=True,
     )
 
     logger = logging.getLogger(__name__)
