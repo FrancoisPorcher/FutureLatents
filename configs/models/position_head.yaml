@@ -1,0 +1,6 @@
+model:
+  predictor:
+    input_dim: 1024
+    hidden_dim: 256
+    output_dim: 2
+    normalized_coordinates: ${TRAINER.TRAINING.NORMALIZED_COORDINATES}

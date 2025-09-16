@@ -2,3 +2,4 @@ inherits:
   - ../datasets/synthetic_bouncing_shapes_image.yaml
   - ../backbones/dinov3.yaml
   - ../training/trainer_locator.yaml
+  - ../models/position_head.yaml

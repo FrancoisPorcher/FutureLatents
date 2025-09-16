@@ -23,6 +23,7 @@ import wandb
 
 from utils.video import (
     convert_video_tensor_to_mp4,
+    save_batch,
     save_mp4_video,
     save_tensor,
     save_visualisation_tensors,
@@ -713,6 +714,119 @@ class LocatorTrainer(Trainer):
             debug=debug,
             dump_dir=dump_dir,
         )
+    # ------------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------------
+    def train_step(self, batch: dict) -> float:
+        """Single optimisation step for the locator.
+
+        Coordinates are supervised using normalised targets in ``[0, 1]``.
+        """
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "Begin train_step (epoch=%d, step=%d, micro_step=%d)",
+                self.state.epoch,
+                self.state.step,
+                self.state.micro_step + 1,
+            )
+
+        self.model.train()
+        self.state.increment_micro_step()
+
+        with self.accelerator.accumulate(self.model):
+            with self.accelerator.autocast():
+                outputs = self.model(batch)
+                loss_square = self.criterion(
+                    outputs["square_pred"],
+                    batch["target_square_position_normalized"].to(outputs["square_pred"].dtype),
+                )
+                loss_circle = self.criterion(
+                    outputs["circle_pred"],
+                    batch["target_circle_position_normalized"].to(outputs["circle_pred"].dtype),
+                )
+                loss = loss_square + loss_circle
+
+            self.check_loss_is_finite(loss)
+            self.accelerator.backward(loss)
+
+            if self.accelerator.sync_gradients:
+                if self.max_grad_norm is not None:
+                    total_norm = self.accelerator.clip_grad_norm_(
+                        self.model.parameters(), self.max_grad_norm
+                    )
+                    self._record_grad_norm_event(total_norm)
+                if self.max_grad_value is not None:
+                    self._record_grad_value_event()
+                    self.accelerator.clip_grad_value_(self.model.parameters(), self.max_grad_value)
+
+            self.optimizer.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
+            self.optimizer.zero_grad()
+
+        # Reduce loss for logging
+        loss_value = loss.detach()
+        if self.accelerator.num_processes > 1:
+            loss_value = self.accelerator.gather(loss_value).mean()
+
+        if self.accelerator.sync_gradients:
+            if wandb.run is not None and self.accelerator.is_main_process:
+                lr = self.optimizer.param_groups[0]["lr"]
+                wandb.log(
+                    {f"train/{self.criterion_name}_loss": float(loss_value.item()), "train/lr": lr},
+                    step=self.state.step,
+                )
+            self.state.increment_step()
+
+        self.state.update_wall_time()
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "End train_step (epoch=%d, step=%d, micro_step=%d, loss=%.6f)",
+                self.state.epoch,
+                self.state.step,
+                self.state.micro_step,
+                float(loss_value.item()),
+            )
+        return float(loss_value.item())
+
+    def train_epoch(self) -> float:
+        """One full pass over the training set for the locator."""
+        # Reset counters and log start
+        self.reset_epoch_counters()
+
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Begin train_epoch (epoch=%d, start_step=%d)",
+                self.state.epoch + 1,
+                self.state.step,
+            )
+
+        total_loss = 0.0
+        epoch_start_time = time.time()
+        start_step = self.state.step
+
+        disable = not self.accelerator.is_main_process
+        progress_bar = tqdm(
+            self.train_dataloader,
+            disable=disable,
+            desc=f"Epoch {self.state.epoch + 1}",
+        )
+        for batch in progress_bar:
+            total_loss += self.train_step(batch)
+            mean_so_far = total_loss / max(progress_bar.n, 1)
+            progress_bar.set_postfix({f"{self.criterion_name}_loss": mean_so_far}, refresh=False)
+
+        mean_loss = total_loss / max(progress_bar.n, 1)
+        epoch_time = time.time() - epoch_start_time
+        num_opt_steps = max(self.state.step - start_step, 1)
+        avg_step_time = epoch_time / num_opt_steps
+
+        counts = self._aggregate_epoch_event_counts()
+        self._log_epoch_event_counts(counts)
+
+        self._log_epoch_train_summary(mean_loss, avg_step_time, epoch_time)
+        self.state.increment_epoch()
+        return mean_loss
 
     # ------------------------------------------------------------------
     # Visualisation utilities
@@ -729,64 +843,150 @@ class LocatorTrainer(Trainer):
         if not self.accelerator.is_main_process:
             return
         self.model.eval()
-        for batch in self.visualisation_dataloader:  
-            breakpoint()
+        epoch_dir = self.dump_dir / f"epoch_{self.state.epoch:02d}"
+        epoch_dir.mkdir(parents=True, exist_ok=True)
+
+        num_examples = 0
+        for batch_idx, batch in enumerate(self.visualisation_dataloader):
             batch = _move_batch_to_device(batch=batch, device=self.accelerator.device)
             with self.accelerator.autocast():
                 outputs = self.model(batch)
-                breakpoint()
-
-            for b in range(videos.shape[0]):
-                example_dir = self.dump_dir / f"epoch_{self.state.epoch:02d}" / f"example_{example_idx:02d}"
-                example_dir.mkdir(parents=True, exist_ok=True)
-
-                video = videos[b].detach().cpu()
-                frames, fps = convert_video_tensor_to_mp4(video)
-                save_mp4_video(frames, example_dir / "video", fps=fps, logger=self.logger)
-                save_visualisation_tensors(
-                    video,
-                    context_latents[b],
-                    target_latents[b],
-                    prediction_latents[b],
-                    example_dir,
-                    logger=self.logger,
-                )
-
-                # PCA projections -> RGB video tensors using helper
-                # Context latents: fit PCA on context and reshape with T=n_ctx_lat
-                c_vid, t_vid, p_vid = pca_latents_to_video_tensors(
-                    context_latents=context_latents[b],
-                    target_latents=target_latents[b],
-                    prediction_latents=prediction_latents[b],
-                    n_ctx_lat=self.n_ctx_lat,
-                    n_tgt_lat=self.n_tgt_lat,
-                    H=self.spatial,
-                    W=self.spatial,
-                    fit_on="context",
-                )
-
-                # Save PCA tensors
-                save_tensor(c_vid, example_dir / "context_latents_pca.pt", logger=self.logger)
-                save_tensor(t_vid, example_dir / "target_latents_pca.pt", logger=self.logger)
-                save_tensor(p_vid, example_dir / "prediction_latents_pca.pt", logger=self.logger)
-
-                # Save PCA videos (MP4)
-                frames_c, fps_c = convert_video_tensor_to_mp4(c_vid)
-                frames_t, fps_t = convert_video_tensor_to_mp4(t_vid)
-                frames_p, fps_p = convert_video_tensor_to_mp4(p_vid)
-                save_mp4_video(frames_c, example_dir / "context_latents_pca", fps=fps_c, logger=self.logger)
-                save_mp4_video(frames_t, example_dir / "target_latents_pca", fps=fps_t, logger=self.logger)
-                save_mp4_video(frames_p, example_dir / "prediction_latents_pca", fps=fps_p, logger=self.logger)
-
-                example_idx += 1
-                num_examples += 1
-        mpl_logger.setLevel(_prev_mpl_level)
+            save_batch(
+                batch=batch,
+                outputs=outputs,
+                out_dir=epoch_dir,
+                batch_idx=batch_idx,
+                logger=self.logger,
+            )
+            num_examples += batch["image"].shape[0]
         if self.accelerator.is_main_process:
             self.logger.info(
                 "End run_visualisation (epoch=%d, files=%d)",
                 self.state.epoch,
                 num_examples,
-            )    
+            )
 
+    # ------------------------------------------------------------------
+    # Evaluation step override (loss on normalised positions)
+    # ------------------------------------------------------------------
+    @torch.no_grad()
+    def run_evaluation_step(self, batch: dict) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor]:
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "Begin run_evaluation_step (epoch=%d)",
+                self.state.epoch,
+            )
+        self.model.eval()
+        with self.accelerator.autocast():
+            outputs = self.model(batch)
+            square_pred = outputs["square_pred"]
+            circle_pred = outputs["circle_pred"]
+            square_tgt = batch["target_square_position_normalized"].to(square_pred.dtype)
+            circle_tgt = batch["target_circle_position_normalized"].to(circle_pred.dtype)
 
+            loss = self.criterion(square_pred, square_tgt) + self.criterion(circle_pred, circle_tgt)
+            square_pred_px = outputs["denormalized_square_pred"]
+            circle_pred_px = outputs["denormalized_circle_pred"]
+            square_tgt_px = batch["target_square_position_pixel"].to(square_pred_px.dtype)
+            circle_tgt_px = batch["target_circle_position_pixel"].to(circle_pred_px.dtype)
+
+            pixel_loss = self.criterion(square_pred_px, square_tgt_px) + self.criterion(circle_pred_px, circle_tgt_px)
+
+        pixel_loss = pixel_loss.detach()
+        value = float(loss.detach().item())
+        pixel_value = float(pixel_loss.item())
+        if self.accelerator.is_main_process:
+            self.logger.debug(
+                "End run_evaluation_step (epoch=%d, val/avg_%s_loss_normalized_v1=%.6f, val/avg_%s_loss_pixel_v1=%.6f)",
+                self.state.epoch,
+                self.criterion_name,
+                value,
+                self.criterion_name,
+                pixel_value,
+            )
+        # Return placeholders for latents to match base signature
+        dummy = torch.empty(0, device=self.accelerator.device)
+        return value, pixel_loss, dummy, dummy
+
+    def _log_locator_val_summary(self, mean_normalized_loss: float, mean_pixel_loss: float) -> None:
+        """Log locator-specific validation metrics to W&B and the standard logger."""
+        if not self.accelerator.is_main_process:
+            return
+
+        metric_norm = f"val/avg_{self.criterion_name}_loss_normalized_v1"
+        metric_pixel = f"val/avg_{self.criterion_name}_loss_pixel_v1"
+
+        if wandb.run is not None:
+            wandb.log(
+                {
+                    metric_norm: mean_normalized_loss,
+                    metric_pixel: mean_pixel_loss,
+                },
+                step=self.state.step,
+            )
+
+        self.logger.info(
+            "Epoch %d | %s=%.6f | %s=%.6f | step=%d",
+            self.state.epoch,
+            metric_norm,
+            mean_normalized_loss,
+            metric_pixel,
+            mean_pixel_loss,
+            self.state.step,
+        )
+        self.logger.info("End run_evaluation (epoch=%d)", self.state.epoch)
+
+    @torch.inference_mode()
+    def run_evaluation(self) -> Optional[float]:
+        """Run evaluation and log both normalized and pixel-space losses."""
+        if self.eval_every is not None and self.eval_every > 1:
+            if (self.state.epoch % self.eval_every) != 0:
+                if self.accelerator.is_main_process:
+                    self.logger.info(
+                        "Skip run_evaluation (epoch=%d): eval_every=%d",
+                        self.state.epoch,
+                        self.eval_every,
+                    )
+                return None
+
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Begin run_evaluation (epoch=%d, step=%d)",
+                self.state.epoch,
+                self.state.step,
+            )
+
+        self.model.eval()
+
+        total_loss_local = 0.0
+        total_pixel_loss_local = 0.0
+        num_batches_local = 0
+
+        disable = not self.accelerator.is_main_process
+        progress_bar = tqdm(
+            self.val_dataloader,
+            disable=disable,
+            desc=f"Eval {self.state.epoch}",
+        )
+
+        for batch in progress_bar:
+            batch_loss, pixel_loss_tensor, _, _ = self.run_evaluation_step(batch)
+            total_loss_local += batch_loss
+            total_pixel_loss_local += float(pixel_loss_tensor.item())
+            num_batches_local += 1
+
+            mean_norm = total_loss_local / max(num_batches_local, 1)
+            mean_pixel = total_pixel_loss_local / max(num_batches_local, 1)
+            progress_bar.set_postfix(
+                {
+                    f"{self.criterion_name}_loss_normalized_v1": mean_norm,
+                    f"{self.criterion_name}_loss_pixel_v1": mean_pixel,
+                },
+                refresh=False,
+            )
+
+        mean_loss = self._aggregate_validation_mean(total_loss_local, num_batches_local)
+        mean_pixel_loss = self._aggregate_validation_mean(total_pixel_loss_local, num_batches_local)
+        self._log_locator_val_summary(mean_loss, mean_pixel_loss)
+        return mean_loss
 __all__ = ["Trainer", "TrainState", "DeterministicTrainer", "LocatorTrainer"]

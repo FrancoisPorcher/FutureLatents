@@ -16,7 +16,7 @@ datasets:
   val:
     name: synthetic_bouncing_shapes_image
     synthetic_bouncing_shapes_image:
-      length: 512
+      length: 256
       n_frame: ${TRAINER.N_FRAMES}
       image_size: ${BACKBONE.IMAGE_SIZE}
       square_size: 64
@@ -26,7 +26,7 @@ datasets:
   visualisation:
     name: synthetic_bouncing_shapes_image
     synthetic_bouncing_shapes_image:
-      length: 4
+      length: 8
       n_frame: ${TRAINER.N_FRAMES}
       image_size: ${BACKBONE.IMAGE_SIZE}
       square_size: 64

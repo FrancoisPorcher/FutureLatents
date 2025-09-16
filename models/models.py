@@ -192,7 +192,6 @@ class LatentVideoBase(nn.Module):
         # Process all selected frames in one pass
         processed = self.preprocessor(images=image, return_tensors="pt")
         pixel_values = processed["pixel_values"]
-        breakpoint()
 
         with torch.inference_mode():
             outputs = self.encoder(pixel_values)
@@ -228,7 +227,7 @@ class LatentVideoBase(nn.Module):
     def norm_embeddings(self, latents: torch.Tensor) -> torch.Tensor:
         """Apply optional normalization to encoder embeddings and return latents only."""
 
-        if self.embedding_norm == "none":
+        if self.embedding_norm is None:
             return latents
         if self.embedding_norm == "l1":
             return F.normalize(latents, p=1, dim=1)
@@ -239,7 +238,7 @@ class LatentVideoBase(nn.Module):
             std = latents.std(dim=1, keepdim=True, unbiased=False)
             return (latents - mean) / (std + 1e-5)
         raise ValueError(
-            f"Unknown embedding norm '{self.embedding_norm}'. Expected one of ['none','l1','l2','layer']"
+            f"Unknown embedding norm '{self.embedding_norm}'. Expected one of [None,'l1','l2','layer']"
         )
 
 
@@ -331,19 +330,114 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         prediction = self.predictor(context_latents, target_queries)
         return prediction, target_latents, context_latents, target_latents
 
+class SquarePredictor(nn.Module):
+    """Two-layer MLP that predicts square coordinates from pooled latents."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int,
+        normalized: bool = True,
+    ) -> None:
+        super().__init__()
+        layers: list[nn.Module] = [
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, output_dim),
+        ]
+        if normalized:
+            layers.append(nn.Sigmoid())
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.network(inputs)
+
+
+class CirclePredictor(nn.Module):
+    """Two-layer MLP that predicts circle coordinates from pooled latents."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int,
+        normalized: bool = True,
+    ) -> None:
+        super().__init__()
+        layers: list[nn.Module] = [
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, output_dim),
+        ]
+        if normalized:
+            layers.append(nn.Sigmoid())
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.network(inputs)
+
+
 class PositionPredictor(LatentVideoBase):
     """Locator model for the bouncing shapes dataset."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
         super().__init__(config)
+        self.image_size = config.BACKBONE.IMAGE_SIZE
+        predictor_cfg = config.MODEL.PREDICTOR
+        input_dim = predictor_cfg.INPUT_DIM
+        hidden_dim = predictor_cfg.HIDDEN_DIM
+        output_dim = predictor_cfg.OUTPUT_DIM
+        self.normalized_coordinates = predictor_cfg.NORMALIZED_COORDINATES
+
+        self.square_predictor = SquarePredictor(
+            input_dim,
+            hidden_dim,
+            output_dim,
+            normalized=self.normalized_coordinates,
+        )
+        self.circle_predictor = CirclePredictor(
+            input_dim,
+            hidden_dim,
+            output_dim,
+            normalized=self.normalized_coordinates,
+        )
 
     def forward(self, batch: Dict[str, Any]):
-        breakpoint()
         latents = self.encode_image_with_backbone(batch)  # [B, D, H, W]
-        breakpoint()
-        latents = self.norm_embeddings(latents)        
+        latents = self.norm_embeddings(latents)  # [B, D, H, W]
+        pooled = F.adaptive_avg_pool2d(latents, output_size=1)  # [B, D, 1, 1]
+        pooled = pooled.flatten(start_dim=1)  # [B, D]
+
+        square_pred = self.square_predictor(pooled)  # [B, 2]
+        circle_pred = self.circle_predictor(pooled)  # [B, 2]
         
-        pass
+        scale = 0.5 * (self.image_size - 1)
+        denormalized_square_pred = (square_pred + 1.0) * scale # [B, 2]
+        denormalized_circle_pred = (circle_pred + 1.0) * scale # [B, 2]
+
+        return {
+            "normalized_latents": latents,
+            "square_pred": square_pred,
+            "circle_pred": circle_pred,
+            "denormalized_square_pred": denormalized_square_pred,
+            "denormalized_circle_pred": denormalized_circle_pred,
+        }
+        
+        
+class HeatmapPredictor(LatentVideoBase):
+    """Locator model for the bouncing shapes dataset using heatmap prediction."""
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        super().__init__(config)
+
+    def forward(self, batch: Dict[str, Any]):
+        latents = self.encode_image_with_backbone(batch)  # [B, D, H, W]
+        latents = self.norm_embeddings(latents)  # [B, D, H, W]
+        
+        
+        
+
 
 
 
@@ -353,5 +447,7 @@ __all__ = [
     "FlowMatchingLatentVideoModel",
     "DeterministicLatentVideoModel",
     "DeterministicCrossAttentionLatentVideoModel",
+    "SquarePredictor",
+    "CirclePredictor",
     "PositionPredictor",
 ]

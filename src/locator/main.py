@@ -152,7 +152,7 @@ def main() -> None:
         model, optimizer, train_dataloader, val_dataloader, scheduler)
 
     if accelerator.is_main_process and use_wandb:
-        wandb.watch(model, log="gradients", log_freq=500)
+        wandb.watch(model, log="gradients", log_freq=100)
 
     trainer = build_trainer(
         config=config,
@@ -168,15 +168,11 @@ def main() -> None:
         debug=args.debug,
         dump_dir=dirs.dump_dir
     )
-    print(trainer)
 
     trainer.fit()
 
     if accelerator.is_main_process and use_wandb and wandb.run is not None:
         wandb.finish()
-
-    
-    breakpoint()
     
 
 if __name__ == "__main__":

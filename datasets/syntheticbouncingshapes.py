@@ -1,11 +1,11 @@
 """Synthetic shapes datasets.
 
 - ``SyntheticBouncingShapesVideo``: generates short synthetic videos with two
-  moving shapes (a red square bouncing on borders, and a blue disk following a
-  circular trajectory). Frames are returned as uint8 ``[T, C, H, W]``.
+  moving shapes (a red square bouncing on borders, and a blue circle following
+  a circular trajectory). Frames are returned as uint8 ``[T, C, H, W]``.
 - ``SyntheticBouncingShapesImage``: generates single RGB images where the
-  square and disk are placed at random valid positions. Returned samples expose
-  an ``"image"`` tensor with shape ``[C, H, W]`` alongside supervision
+  square and circle are placed at random valid positions. Returned samples
+  expose an ``"image"`` tensor with shape ``[C, H, W]`` alongside supervision
   metadata.
 """
 
@@ -31,18 +31,18 @@ class SyntheticBouncingShapesVideo(Dataset):
     - ``SQUARE_SIZE``: edge length of the square
     - ``SQUARE_INIT``: [x0, y0] top-left initial position (floats)
     - ``SQUARE_VEL``: [vx, vy] velocity in px/frame (floats)
-    - ``DISK_RADIUS``: radius of the disk
+    - ``DISK_RADIUS``: radius of the circle (kept for backward compatibility)
     """
 
     def __init__(self, config) -> None:
         self.config = config
 
         # Read parameters from config (following kinetics_400 style)
-        self.n_frame = int(config.N_FRAME)
+        self.n_frame = config.N_FRAME
         # Dataset length is configurable; default to 4 if unspecified
-        self.length = int(getattr(config, "LENGTH", 4))
-        self.image_size = int(config.IMAGE_SIZE)
-        self.square_size = int(config.SQUARE_SIZE)
+        self.length = config.LENGTH
+        self.image_size = config.IMAGE_SIZE
+        self.square_size = config.SQUARE_SIZE
         # Lists from YAML become ListConfig -> cast to floats
         self.square_init = (
             float(config.SQUARE_INIT[0]),
@@ -52,7 +52,7 @@ class SyntheticBouncingShapesVideo(Dataset):
             float(config.SQUARE_VEL[0]),
             float(config.SQUARE_VEL[1]),
         )
-        self.disk_radius = int(config.DISK_RADIUS)
+        self.circle_radius = int(config.DISK_RADIUS)
 
         # Randomness source
         #
@@ -71,7 +71,6 @@ class SyntheticBouncingShapesVideo(Dataset):
         # Generate a fresh random sample each time
         sample = self._generate_video_random()
         video = sample["video"]
-        centers_px = sample["centers_px"]
         t, c, h, w = video.shape
         return {
             "video": video,               # [T, C, H, W] uint8
@@ -85,8 +84,13 @@ class SyntheticBouncingShapesVideo(Dataset):
             "W_original": w,
             "padded": False,
             # Supervision targets: absolute pixel centers per frame
-            # Shape: dict of tensors with shape [T, 2] storing (x, y) in pixels
-            "centers_px": centers_px,
+            # Shape: tensors with shape [T, 2] storing (x, y) in pixels
+            "target_square_position_pixel": sample["target_square_position_pixel"],
+            "target_circle_position_pixel": sample["target_circle_position_pixel"],
+            "target_square_position_normalized": sample["target_square_position_normalized"],
+            "target_circle_position_normalized": sample["target_circle_position_normalized"],
+            "target_square_heatmap": sample["target_square_heatmap"],
+            "target_circle_heatmap": sample["target_circle_heatmap"],
         }
 
     # ---------------------------
@@ -96,7 +100,7 @@ class SyntheticBouncingShapesVideo(Dataset):
         T = self.n_frame
         size = self.image_size
         sq = self.square_size
-        r = self.disk_radius
+        r = self.circle_radius
 
         # Sample random initial square position uniformly in the valid range
         xmin, ymin = 0.0, 0.0
@@ -110,7 +114,7 @@ class SyntheticBouncingShapesVideo(Dataset):
         vx, vy = self.square_vel
 
         cx0, cy0 = size / 2.0, size / 2.0
-        R = (size / 2.0) - r - 8.0  # keep disk within borders
+        R = (size / 2.0) - r - 8.0  # keep circle within borders
         # Random initial phase for the circular trajectory
         theta0 = float(np.random.uniform(0.0, 2 * np.pi))
 
@@ -118,7 +122,7 @@ class SyntheticBouncingShapesVideo(Dataset):
         # Accumulate absolute pixel centers for each object at every frame.
         # We use integer pixel indices in (x, y) order, within [0, size-1].
         square_centers = np.zeros((T, 2), dtype=np.int64)
-        disk_centers = np.zeros((T, 2), dtype=np.int64)
+        circle_centers = np.zeros((T, 2), dtype=np.int64)
         for t in range(T):
             # Update square position with elastic wall bounces
             x += vx
@@ -151,15 +155,15 @@ class SyntheticBouncingShapesVideo(Dataset):
             square_cy = int(np.clip(square_cy, 0, size - 1))
             square_centers[t] = (square_cx, square_cy)
 
-            # Disk along circular trajectory
+            # Circle along circular trajectory
             theta = theta0 + 2 * np.pi * (t / T)
             cx = int(round(cx0 + R * np.cos(theta)))
             cy = int(round(cy0 + R * np.sin(theta)))
             draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(50, 180, 250))
-            # Disk center is directly (cx, cy) in absolute pixels
+            # Circle center is directly (cx, cy) in absolute pixels
             cx = int(np.clip(cx, 0, size - 1))
             cy = int(np.clip(cy, 0, size - 1))
-            disk_centers[t] = (cx, cy)
+            circle_centers[t] = (cx, cy)
 
             frames.append(img)
 
@@ -167,23 +171,37 @@ class SyntheticBouncingShapesVideo(Dataset):
         arr = np.stack([np.array(f, dtype=np.uint8) for f in frames], axis=0)
         tensor = torch.from_numpy(arr).permute(0, 3, 1, 2).contiguous()
 
-        centers_px: Dict[str, torch.Tensor] = {
-            # [T, 2] with (x, y) absolute pixel indices
-            "square": torch.from_numpy(square_centers),
-            "disk": torch.from_numpy(disk_centers),
-        }
+        square_px = torch.from_numpy(square_centers)
+        circle_px = torch.from_numpy(circle_centers)
+
+        # Per-frame heatmaps marking the centers with value 1.0
+        square_heatmap = torch.zeros((T, size, size, 1), dtype=torch.float32)
+        circle_heatmap = torch.zeros((T, size, size, 1), dtype=torch.float32)
+        for t_idx in range(T):
+            sq_x, sq_y = square_centers[t_idx]
+            square_heatmap[t_idx, sq_y, sq_x, 0] = 1.0
+            circ_x, circ_y = circle_centers[t_idx]
+            circle_heatmap[t_idx, circ_y, circ_x, 0] = 1.0
+        scale = 2.0 / float(self.image_size - 1)
+        square_norm = square_px.float() * scale - 1.0
+        circle_norm = circle_px.float() * scale - 1.0
 
         # Return a compact, well-structured dictionary
         return {
-            "video": tensor,           # [T, C, H, W] uint8
-            "centers_px": centers_px, # dict[name]->[T,2] (x,y) in pixels
+            "video": tensor,                                 # [T, C, H, W] uint8
+            "target_square_position_pixel": square_px,       # [T, 2]
+            "target_circle_position_pixel": circle_px,       # [T, 2]
+            "target_square_position_normalized": square_norm,
+            "target_circle_position_normalized": circle_norm,
+            "target_square_heatmap": square_heatmap,         # [T, H, W, 1]
+            "target_circle_heatmap": circle_heatmap,         # [T, H, W, 1]
         }
 
 
 class SyntheticBouncingShapesImage(Dataset):
     """Dataset producing single-frame images with randomly placed shapes.
 
-    The square and disk are positioned uniformly at random within valid
+    The square and circle are positioned uniformly at random within valid
     borders so that the full shapes fit inside the image. Returned samples
     contain an ``image`` tensor (``[C, H, W]`` uint8) together with absolute
     pixel centers for each shape.
@@ -192,7 +210,7 @@ class SyntheticBouncingShapesImage(Dataset):
     - ``LENGTH``: number of samples to expose via ``__len__``
     - ``IMAGE_SIZE``: height/width in pixels
     - ``SQUARE_SIZE``: edge length of the square
-    - ``DISK_RADIUS``: radius of the disk
+    - ``DISK_RADIUS``: radius of the circle (kept for backward compatibility)
     """
 
     def __init__(self, config) -> None:
@@ -201,7 +219,7 @@ class SyntheticBouncingShapesImage(Dataset):
         self.length = int(getattr(config, "LENGTH", 4))
         self.image_size = int(config.IMAGE_SIZE)
         self.square_size = int(config.SQUARE_SIZE)
-        self.disk_radius = int(config.DISK_RADIUS)
+        self.circle_radius = int(config.DISK_RADIUS)
 
     def __len__(self) -> int:
         return self.length
@@ -209,7 +227,6 @@ class SyntheticBouncingShapesImage(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         sample = self._generate_image_random()
         image = sample["image"]  # [C, H, W]
-        centers_px = sample["centers_px"]  # dict[name]->[2]
         c, h, w = image.shape
         return {
             "image": image,               # [C, H, W] uint8 image tensor
@@ -221,13 +238,18 @@ class SyntheticBouncingShapesImage(Dataset):
             "width": w,
             "padded": False,
             # Supervision targets: absolute pixel centers (x, y)
-            "centers_px": centers_px,
+            "target_square_position_pixel": sample["target_square_position_pixel"],
+            "target_circle_position_pixel": sample["target_circle_position_pixel"],
+            "target_square_position_normalized": sample["target_square_position_normalized"],
+            "target_circle_position_normalized": sample["target_circle_position_normalized"],
+            "target_square_heatmap": sample["target_square_heatmap"],
+            "target_circle_heatmap": sample["target_circle_heatmap"],
         }
 
     def _generate_image_random(self) -> Dict[str, Any]:
         size = self.image_size
         sq = self.square_size
-        r = self.disk_radius
+        r = self.circle_radius
 
         # Sample square top-left uniformly where it fully fits
         xmin, ymin = 0.0, 0.0
@@ -235,7 +257,7 @@ class SyntheticBouncingShapesImage(Dataset):
         x = float(np.random.uniform(xmin, xmax))
         y = float(np.random.uniform(ymin, ymax))
 
-        # Sample disk center uniformly where it fully fits
+        # Sample circle center uniformly where it fully fits
         cx = float(np.random.uniform(r, size - r))
         cy = float(np.random.uniform(r, size - r))
 
@@ -251,7 +273,7 @@ class SyntheticBouncingShapesImage(Dataset):
         square_cx = int(np.clip(square_cx, 0, size - 1))
         square_cy = int(np.clip(square_cy, 0, size - 1))
 
-        # Disk
+        # Circle
         cxi = int(round(cx))
         cyi = int(round(cy))
         draw.ellipse([cxi - r, cyi - r, cxi + r, cyi + r], fill=(50, 180, 250))
@@ -262,14 +284,26 @@ class SyntheticBouncingShapesImage(Dataset):
         arr = np.array(img, dtype=np.uint8)  # [H, W, C]
         tensor = torch.from_numpy(arr).permute(2, 0, 1).contiguous()  # [C,H,W]
 
-        centers_px: Dict[str, torch.Tensor] = {
-            "square": torch.tensor([square_cx, square_cy], dtype=torch.int64),
-            "disk": torch.tensor([cxi, cyi], dtype=torch.int64),
-        }
+        square_px = torch.tensor([square_cx, square_cy], dtype=torch.int64)
+        circle_px = torch.tensor([cxi, cyi], dtype=torch.int64)
+
+        # Heatmaps with a "1" at the respective centers
+        square_heatmap = torch.zeros((size, size, 1), dtype=torch.float32)
+        square_heatmap[square_cy, square_cx, 0] = 1.0
+        circle_heatmap = torch.zeros((size, size, 1), dtype=torch.float32)
+        circle_heatmap[cyi, cxi, 0] = 1.0
+        scale = 2.0 / float(self.image_size - 1)
+        square_norm = square_px.float() * scale - 1.0
+        circle_norm = circle_px.float() * scale - 1.0
 
         return {
             "image": tensor,           # [C, H, W] uint8
-            "centers_px": centers_px, # dict[name]->[2]
+            "target_square_position_pixel": square_px,
+            "target_circle_position_pixel": circle_px,
+            "target_square_position_normalized": square_norm,
+            "target_circle_position_normalized": circle_norm,
+            "target_square_heatmap": square_heatmap,  # [H, W, 1]
+            "target_circle_heatmap": circle_heatmap,  # [H, W, 1]
         }
 
 
