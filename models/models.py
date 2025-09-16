@@ -192,11 +192,7 @@ class LatentVideoBase(nn.Module):
         # Process all selected frames in one pass
         processed = self.preprocessor(images=image, return_tensors="pt")
         pixel_values = processed["pixel_values"]
-
-        # Ensure inputs match the encoder's device and dtype to avoid
-        # mixed-precision dtype mismatches under autocast.
         breakpoint()
-        pixel_values = pixel_values.to(device=enc_param.device, dtype=enc_param.dtype, non_blocking=True)
 
         with torch.inference_mode():
             outputs = self.encoder(pixel_values)
@@ -342,7 +338,9 @@ class PositionPredictor(LatentVideoBase):
         super().__init__(config)
 
     def forward(self, batch: Dict[str, Any]):
+        breakpoint()
         latents = self.encode_image_with_backbone(batch)  # [B, D, H, W]
+        breakpoint()
         latents = self.norm_embeddings(latents)        
         
         pass

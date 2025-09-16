@@ -4,32 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
-
-from accelerate.state import AcceleratorState
 import torch
 
+def _move_batch_to_device(batch: Any, device: torch.device) -> Any:
+    if isinstance(batch, Mapping):
+        return {key: _move_to_device(value, device) for key, value in batch.items()}
 
-def _move_batch_to_device(batch: Any) -> Any:
-    """Recursively move tensors in ``batch`` to the current accelerator device."""
+    if isinstance(batch, tuple):
+        return tuple(_move_to_device(value, device) for value in batch)
 
-    device = AcceleratorState().device
-    return _move_batch_with_device(batch, device)
+    if isinstance(batch, list):
+        return [_move_to_device(value, device) for value in batch]
 
+    if isinstance(batch, set):
+        return {_move_to_device(value, device) for value in batch}
 
-def _move_batch_with_device(obj: Any, device: torch.device) -> Any:
-    if isinstance(obj, Mapping):
-        return {key: _move_batch_with_device(value, device) for key, value in obj.items()}
-
-    if isinstance(obj, tuple):
-        return tuple(_move_batch_with_device(value, device) for value in obj)
-
-    if isinstance(obj, list):
-        return [_move_batch_with_device(value, device) for value in obj]
-
-    if isinstance(obj, set):
-        return {_move_batch_with_device(value, device) for value in obj}
-
-    return _move_to_device(obj, device)
+    return _move_to_device(batch, device)
 
 
 def _move_to_device(obj: Any, device: torch.device) -> Any:

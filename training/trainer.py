@@ -540,7 +540,6 @@ class Trainer:
         )
 
         for batch_idx, batch in enumerate(progress_bar):
-            batch = _move_batch_to_device(batch)
             batch_loss, _, _, _ = self.run_evaluation_step(batch)
             total_loss_local += batch_loss
             num_batches_local += 1
@@ -730,16 +729,12 @@ class LocatorTrainer(Trainer):
         if not self.accelerator.is_main_process:
             return
         self.model.eval()
-        for batch in self.visualisation_dataloader:    
-            
-            
+        for batch in self.visualisation_dataloader:  
             breakpoint()
+            batch = _move_batch_to_device(batch=batch, device=self.accelerator.device)
             with self.accelerator.autocast():
-                
-                
-                
-                breakpoint()
                 outputs = self.model(batch)
+                breakpoint()
 
             for b in range(videos.shape[0]):
                 example_dir = self.dump_dir / f"epoch_{self.state.epoch:02d}" / f"example_{example_idx:02d}"
