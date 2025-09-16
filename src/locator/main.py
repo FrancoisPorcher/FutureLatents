@@ -167,6 +167,7 @@ def main() -> None:
         debug=args.debug,
         dump_dir=dirs.dump_dir
     )
+    print(trainer)
 
     trainer.fit()
 

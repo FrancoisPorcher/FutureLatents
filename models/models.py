@@ -360,6 +360,10 @@ class PositionPredictor(LatentVideoBase):
         super().__init__(config)
 
     def forward(self, batch: Dict[str, Any]):
+        
+        
+        breakpoint()
+        
         pass
 
 

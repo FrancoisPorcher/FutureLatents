@@ -268,7 +268,7 @@ class SyntheticBouncingShapesImage(Dataset):
         }
 
         return {
-            "video": tensor,           # [1, C, H, W] uint8
+            "image": tensor,           # [1, C, H, W] uint8
             "centers_px": centers_px, # dict[name]->[1,2]
         }
 
