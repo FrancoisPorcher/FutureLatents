@@ -30,6 +30,7 @@ from utils.video import (
 from utils.pca import pca_latents_to_video_tensors
 from .losses import get_criterion
 from utils.latents import infer_latent_dimensions
+from utils.torch_utils import _move_batch_to_device
 
 @dataclass
 class TrainState:
@@ -539,6 +540,7 @@ class Trainer:
         )
 
         for batch_idx, batch in enumerate(progress_bar):
+            batch = _move_batch_to_device(batch)
             batch_loss, _, _, _ = self.run_evaluation_step(batch)
             total_loss_local += batch_loss
             num_batches_local += 1
@@ -712,7 +714,7 @@ class LocatorTrainer(Trainer):
             debug=debug,
             dump_dir=dump_dir,
         )
-        
+
     # ------------------------------------------------------------------
     # Visualisation utilities
     # ------------------------------------------------------------------
