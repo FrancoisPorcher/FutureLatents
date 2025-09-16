@@ -712,6 +712,81 @@ class LocatorTrainer(Trainer):
             debug=debug,
             dump_dir=dump_dir,
         )
+        
+    # ------------------------------------------------------------------
+    # Visualisation utilities
+    # ------------------------------------------------------------------
+    @torch.inference_mode()
+    # Overwrite run_visualisation from parent Trainer class
+    def run_visualisation(self) -> None:
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Begin run_visualisation (epoch=%d, step=%d)",
+                self.state.epoch,
+                self.state.step,
+            )
+        if not self.accelerator.is_main_process:
+            return
+        self.model.eval()
+        for batch in self.visualisation_dataloader:    
+            with self.accelerator.autocast():
+                
+                
+                
+                breakpoint()
+                outputs = self.model(batch)
+
+            for b in range(videos.shape[0]):
+                example_dir = self.dump_dir / f"epoch_{self.state.epoch:02d}" / f"example_{example_idx:02d}"
+                example_dir.mkdir(parents=True, exist_ok=True)
+
+                video = videos[b].detach().cpu()
+                frames, fps = convert_video_tensor_to_mp4(video)
+                save_mp4_video(frames, example_dir / "video", fps=fps, logger=self.logger)
+                save_visualisation_tensors(
+                    video,
+                    context_latents[b],
+                    target_latents[b],
+                    prediction_latents[b],
+                    example_dir,
+                    logger=self.logger,
+                )
+
+                # PCA projections -> RGB video tensors using helper
+                # Context latents: fit PCA on context and reshape with T=n_ctx_lat
+                c_vid, t_vid, p_vid = pca_latents_to_video_tensors(
+                    context_latents=context_latents[b],
+                    target_latents=target_latents[b],
+                    prediction_latents=prediction_latents[b],
+                    n_ctx_lat=self.n_ctx_lat,
+                    n_tgt_lat=self.n_tgt_lat,
+                    H=self.spatial,
+                    W=self.spatial,
+                    fit_on="context",
+                )
+
+                # Save PCA tensors
+                save_tensor(c_vid, example_dir / "context_latents_pca.pt", logger=self.logger)
+                save_tensor(t_vid, example_dir / "target_latents_pca.pt", logger=self.logger)
+                save_tensor(p_vid, example_dir / "prediction_latents_pca.pt", logger=self.logger)
+
+                # Save PCA videos (MP4)
+                frames_c, fps_c = convert_video_tensor_to_mp4(c_vid)
+                frames_t, fps_t = convert_video_tensor_to_mp4(t_vid)
+                frames_p, fps_p = convert_video_tensor_to_mp4(p_vid)
+                save_mp4_video(frames_c, example_dir / "context_latents_pca", fps=fps_c, logger=self.logger)
+                save_mp4_video(frames_t, example_dir / "target_latents_pca", fps=fps_t, logger=self.logger)
+                save_mp4_video(frames_p, example_dir / "prediction_latents_pca", fps=fps_p, logger=self.logger)
+
+                example_idx += 1
+                num_examples += 1
+        mpl_logger.setLevel(_prev_mpl_level)
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "End run_visualisation (epoch=%d, files=%d)",
+                self.state.epoch,
+                num_examples,
+            )    
 
 
 __all__ = ["Trainer", "TrainState", "DeterministicTrainer", "LocatorTrainer"]

@@ -173,7 +173,6 @@ class LatentVideoBase(nn.Module):
         if self.encoder is None or self.preprocessor is None:
             raise ValueError("`image` provided but no encoder is initialised")
         
-        
         if self.backbone_type == "dinov3":
             return self._forward_image_dinov3(inputs)
         
@@ -196,7 +195,7 @@ class LatentVideoBase(nn.Module):
 
         # Ensure inputs match the encoder's device and dtype to avoid
         # mixed-precision dtype mismatches under autocast.
-        enc_param = next(self.encoder.parameters())
+        breakpoint()
         pixel_values = pixel_values.to(device=enc_param.device, dtype=enc_param.dtype, non_blocking=True)
 
         with torch.inference_mode():
@@ -343,7 +342,9 @@ class PositionPredictor(LatentVideoBase):
         super().__init__(config)
 
     def forward(self, batch: Dict[str, Any]):
-        
+        latents = self.encode_image_with_backbone(batch)  # [B, D, H, W]
+        breakpoint()
+        latents = self.norm_embeddings(latents)        
         
         breakpoint()
         
