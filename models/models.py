@@ -343,10 +343,7 @@ class PositionPredictor(LatentVideoBase):
 
     def forward(self, batch: Dict[str, Any]):
         latents = self.encode_image_with_backbone(batch)  # [B, D, H, W]
-        breakpoint()
         latents = self.norm_embeddings(latents)        
-        
-        breakpoint()
         
         pass
 

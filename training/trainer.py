@@ -729,6 +729,9 @@ class LocatorTrainer(Trainer):
             return
         self.model.eval()
         for batch in self.visualisation_dataloader:    
+            
+            
+            breakpoint()
             with self.accelerator.autocast():
                 
                 
