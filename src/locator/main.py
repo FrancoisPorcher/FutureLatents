@@ -28,13 +28,9 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Accelerator initialisation
     # ------------------------------------------------------------------
-    gradient_accumulation_steps = int(
-        config.TRAINER.TRAINING.GRADIENT_ACCUMULATION_STEPS
-    )
-    find_unused_parameters = bool(
-        config.TRAINER.TRAINING.FIND_UNUSED_PARAMETERS
-    )
-    mixed_precision = str(config.TRAINER.TRAINING.MIXED_PRECISION)
+    gradient_accumulation_steps = config.TRAINER.TRAINING.GRADIENT_ACCUMULATION_STEPS
+    find_unused_parameters = config.TRAINER.TRAINING.FIND_UNUSED_PARAMETERS
+    mixed_precision = config.TRAINER.TRAINING.MIXED_PRECISION
     
     accelerator = Accelerator(
         gradient_accumulation_steps=gradient_accumulation_steps,
@@ -88,16 +84,16 @@ def main() -> None:
         train_dataset = torch.utils.data.Subset(train_dataset, range(DEBUG_TRAIN_STEPS))
         val_dataset = torch.utils.data.Subset(val_dataset, range(DEBUG_VAL_STEPS))
 
-    learning_rate = float(config.TRAINER.TRAINING.LEARNING_RATE)
-    weight_decay = float(config.TRAINER.TRAINING.WEIGHT_DECAY)
+    learning_rate = config.TRAINER.TRAINING.LEARNING_RATE
+    weight_decay = config.TRAINER.TRAINING.WEIGHT_DECAY
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
 
-    num_workers = int(config.TRAINER.TRAINING.NUM_WORKERS)
-    train_batch_size = int(config.TRAINER.TRAINING.BATCH_SIZE_PER_GPU)
-    eval_batch_size = int(config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU)
+    num_workers = config.TRAINER.TRAINING.NUM_WORKERS
+    train_batch_size = config.TRAINER.TRAINING.BATCH_SIZE_PER_GPU
+    eval_batch_size = config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -112,7 +108,7 @@ def main() -> None:
         batch_size=eval_batch_size,
     )
     # Visualisation dataloader: use same num_workers and batch size from config
-    visualisation_batch_size = int(config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU)
+    visualisation_batch_size = config.TRAINER.EVALUATION.BATCH_SIZE_PER_GPU
     visualisation_dataloader = torch.utils.data.DataLoader(
         visualisation_dataset,
         shuffle=False,
