@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from accelerate import Accelerator
 from accelerate.utils import tqdm
@@ -29,7 +29,7 @@ from utils.video import (
     save_visualisation_tensors,
 )
 from utils.pca import pca_latents_to_video_tensors
-from .losses import get_criterion
+from .losses import compute_locator_step_losses, get_criterion
 from .trainer_logging import TrainerLoggingMixin
 from utils.latents import infer_latent_dimensions
 from utils.torch_utils import _move_batch_to_device
@@ -147,7 +147,7 @@ class Trainer(TrainerLoggingMixin):
         self.state.start_timer()
         self.logger = logger or logging.getLogger(__name__)
         self.debug = debug
-        self.dump_dir = Path(dump_dir) if dump_dir is not None else None
+        self.dump_dir = dump_dir
         self.config = config
         # Persist common runtime objects
         self.train_dataloader = train_dataloader
@@ -155,8 +155,8 @@ class Trainer(TrainerLoggingMixin):
         self.visualisation_dataloader = visualisation_dataloader
         self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir is not None else None
         # Evaluation parameters
-        self.eval_every = int(config.EVALUATION.EVAL_EVERY)
-        self.eval_first = bool(config.EVALUATION.EVAL_FIRST)
+        self.eval_every = config.EVALUATION.EVAL_EVERY
+        self.eval_first = config.EVALUATION.EVAL_FIRST
         # Global configuration
         self.n_frames = config.N_FRAMES
         # Latent/layout dimensions inferred from full model config
@@ -454,16 +454,21 @@ class Trainer(TrainerLoggingMixin):
     # ------------------------------------------------------------------
     # Checkpoint utilities
     # ------------------------------------------------------------------
+    def _model_state_for_checkpoint(self) -> dict[str, torch.Tensor]:
+        state = self.accelerator.get_state_dict(self.model)
+        model = self.accelerator.unwrap_model(self.model)
+        encoder = getattr(model, "encoder", None)
+        if isinstance(encoder, torch.nn.Module):
+            state = {k: v for k, v in state.items() if not k.startswith("encoder.")}
+        return state
+
     def save_checkpoint(self) -> None:
-        save_every_raw = getattr(self, "save_every", None)
-        if save_every_raw is None:
+        if self.save_every in (None, 0):
             return
 
         try:
-            save_interval = int(save_every_raw)
+            save_interval = int(self.save_every)
         except (TypeError, ValueError):
-            if self.accelerator.is_main_process:
-                self.logger.error("Invalid save_every configuration: %s", save_every_raw)
             return
 
         if save_interval <= 0:
@@ -473,62 +478,91 @@ class Trainer(TrainerLoggingMixin):
             return
 
         if self.checkpoint_dir is None:
-            if self.accelerator.is_main_process:
-                self.logger.warning("Skipping checkpoint save: checkpoint directory is not set.")
             return
 
-        checkpoint_root = self.checkpoint_dir / f"epoch_{self.state.epoch:04d}"
-
-        self.accelerator.wait_for_everyone()
-        if self.accelerator.is_main_process:
-            checkpoint_root.mkdir(parents=True, exist_ok=True)
-            self.logger.info(
-                "Saving checkpoint at epoch %d (step %d) to %s",
-                self.state.epoch,
-                self.state.step,
-                checkpoint_root,
-            )
-        self.accelerator.wait_for_everyone()
-
-        self.accelerator.save_state(str(checkpoint_root))
-        self.accelerator.wait_for_everyone()
+        checkpoint_path = self.checkpoint_dir / "checkpoint.py"
 
         if self.accelerator.is_main_process:
-            config_container = OmegaConf.to_container(
-                self.config,
-                resolve=True,
-                enum_to_str=True,
-            )
-
-            save_every_map: Dict[str, Any] = {}
-
-            def _collect_save_every(node: Any, path: list[str]) -> None:
-                if isinstance(node, dict):
-                    for key, value in node.items():
-                        new_path = path + [str(key)]
-                        if str(key).lower() == "save_every":
-                            save_every_map[".".join(new_path)] = value
-                        _collect_save_every(value, new_path)
-                elif isinstance(node, list):
-                    for idx, value in enumerate(node):
-                        _collect_save_every(value, path + [f"[{idx}]"])
-
-            if config_container is not None:
-                _collect_save_every(config_container, [])
-
-            metadata = {
-                "trainer_state": asdict(self.state),
-                "config_save_every": save_every_map,
-                "config": config_container,
-                "save_interval": save_interval,
-                "timestamp": time.time(),
+            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "epoch": int(self.state.epoch),
+                "checkpoint": self._model_state_for_checkpoint(),
+                "optimizer": self.optimizer.state_dict(),
+                "learning_rate_scheduler": (
+                    self.scheduler.state_dict() if self.scheduler is not None else None
+                ),
+                "config": OmegaConf.to_container(
+                    self.config,
+                    resolve=True,
+                    enum_to_str=True,
+                ),
             }
-
-            trainer_state_path = checkpoint_root / "trainer_state.pt"
-            torch.save(metadata, trainer_state_path)
-            self.logger.info("Checkpoint artefacts written to %s", checkpoint_root)
+            torch.save(payload, checkpoint_path)
+            self.logger.info("Saved checkpoint to %s", checkpoint_path)
 
         self.accelerator.wait_for_everyone()
+
+    def load_checkpoint(self, checkpoint_path: Optional[Path] = None, strict: bool = False) -> Optional[int]:
+        if checkpoint_path is None:
+            if self.checkpoint_dir is None:
+                return None
+            checkpoint_path = self.checkpoint_dir / "checkpoint.py"
+
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(checkpoint_path)
+
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+
+        model_state = checkpoint.get("checkpoint")
+        if model_state is not None:
+            missing, unexpected = self.accelerator.unwrap_model(self.model).load_state_dict(
+                model_state,
+                strict=strict,
+            )
+            if self.accelerator.is_main_process and (missing or unexpected):
+                self.logger.warning(
+                    "Checkpoint load with missing=%s unexpected=%s",
+                    missing,
+                    unexpected,
+                )
+
+        optimizer_state = checkpoint.get("optimizer")
+        if optimizer_state is not None:
+            self.optimizer.load_state_dict(optimizer_state)
+
+        scheduler_state = checkpoint.get("learning_rate_scheduler")
+        if scheduler_state is not None and self.scheduler is not None:
+            self.scheduler.load_state_dict(scheduler_state)
+
+        config_data = checkpoint.get("config")
+        if config_data is not None:
+            config = OmegaConf.create(config_data)
+            self.config = config
+            self.eval_every = config.EVALUATION.EVAL_EVERY
+            self.eval_first = config.EVALUATION.EVAL_FIRST
+            self.n_frames = config.N_FRAMES
+            self.epochs = config.TRAINING.EPOCHS if not self.debug else 1
+            self.max_grad_norm = config.TRAINING.MAX_GRAD_NORM
+            self.max_grad_value = config.TRAINING.MAX_GRAD_VALUE
+            self.criterion_name = str(config.TRAINING.LOSS).lower()
+            self.criterion = get_criterion(self.criterion_name)
+            self.save_every = config.TRAINING.SAVE_EVERY
+
+        loaded_epoch = int(checkpoint.get("epoch", 0))
+        self.state.epoch = loaded_epoch
+        self.state.step = 0
+        self.state.micro_step = 0
+        self.state.start_timer()
+
+        self.accelerator.wait_for_everyone()
+
+        return loaded_epoch
+
+    def run_evaluation_from_checkpoint(
+        self, checkpoint_path: Optional[Path] = None, strict: bool = False
+    ) -> Optional[float]:
+        self.load_checkpoint(checkpoint_path=checkpoint_path, strict=strict)
+        return self.run_evaluation()
 
 
     # ------------------------------------------------------------------
@@ -627,6 +661,7 @@ class LocatorTrainer(Trainer):
         target_flat = target.flatten(start_dim=1)
         indices = target_flat.argmax(dim=1).long()
         return logits_flat, indices
+
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
@@ -643,35 +678,14 @@ class LocatorTrainer(Trainer):
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 outputs = self.model(batch)
-                square_pred = outputs["square_pred"]
-                circle_pred = outputs["circle_pred"]
-                square_target = batch["target_square_position_normalized"].to(square_pred.dtype)
-                circle_target = batch["target_circle_position_normalized"].to(circle_pred.dtype)
-                square_logits = outputs["square_heatmap_logits"]
-                circle_logits = outputs["circle_heatmap_logits"]
-                square_patch = self._reshape_heatmap_target(
-                    batch["target_square_heatmap_patch"].to(square_logits),
-                    square_logits,
+                loss, coord_loss, heatmap_loss = compute_locator_step_losses(
+                    batch,
+                    outputs,
+                    self.criterion,
+                    self.heatmap_criterion,
+                    self._reshape_heatmap_target,
+                    self._prepare_heatmap_cross_entropy_inputs,
                 )
-                circle_patch = self._reshape_heatmap_target(
-                    batch["target_circle_heatmap_patch"].to(circle_logits),
-                    circle_logits,
-                )
-                coord_loss_square = self.criterion(square_pred, square_target)
-                coord_loss_circle = self.criterion(circle_pred, circle_target)
-                coord_loss = coord_loss_square + coord_loss_circle
-                square_logits_flat, square_target_idx = self._prepare_heatmap_cross_entropy_inputs(
-                    square_logits,
-                    square_patch,
-                )
-                circle_logits_flat, circle_target_idx = self._prepare_heatmap_cross_entropy_inputs(
-                    circle_logits,
-                    circle_patch,
-                )
-                heatmap_loss_square = self.heatmap_criterion(square_logits_flat, square_target_idx)
-                heatmap_loss_circle = self.heatmap_criterion(circle_logits_flat, circle_target_idx)
-                heatmap_loss = heatmap_loss_square + heatmap_loss_circle
-                loss = coord_loss + heatmap_loss
 
             self.check_loss_is_finite(loss)
             self.accelerator.backward(loss)
