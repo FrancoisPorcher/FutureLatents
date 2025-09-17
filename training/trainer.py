@@ -8,18 +8,18 @@ feature rich trainers in the future.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from accelerate import Accelerator
 from accelerate.utils import tqdm
 from einops import rearrange
 import torch
 import wandb
+from omegaconf import OmegaConf
 
 from utils.video import (
     convert_video_tensor_to_mp4,
@@ -30,6 +30,7 @@ from utils.video import (
 )
 from utils.pca import pca_latents_to_video_tensors
 from .losses import get_criterion
+from .trainer_logging import TrainerLoggingMixin
 from utils.latents import infer_latent_dimensions
 from utils.torch_utils import _move_batch_to_device
 
@@ -104,7 +105,7 @@ class TrainState:
 
 
 
-class Trainer:
+class Trainer(TrainerLoggingMixin):
     """Basic PyTorch training helper.
 
     Parameters
@@ -243,13 +244,7 @@ class Trainer:
 
     def train_step(self, batch: dict) -> float:
         """Perform a single optimisation step."""
-        if self.accelerator.is_main_process:
-            self.logger.debug(
-                "Begin train_step (epoch=%d, step=%d, micro_step=%d)",
-                self.state.epoch,
-                self.state.step,
-                self.state.micro_step + 1,  # increment happens just below
-            )
+        self._log_train_step_begin()
         self.model.train()
         self.state.increment_micro_step()
         with self.accelerator.accumulate(self.model):
@@ -273,28 +268,7 @@ class Trainer:
                 self.scheduler.step()
             self.optimizer.zero_grad()
 
-        loss_value = loss.detach()
-        if self.accelerator.num_processes > 1:
-            loss_value = self.accelerator.gather(loss_value).mean()
-        # Log and advance the global step only on real optimisation steps
-        if self.accelerator.sync_gradients:
-            if wandb.run is not None and self.accelerator.is_main_process:
-                lr = self.optimizer.param_groups[0]["lr"]
-                wandb.log(
-                    {f"train/{self.criterion_name}_loss": loss_value.item(), "train/lr": lr},
-                    step=self.state.step,
-                )
-            self.state.increment_step()
-        self.state.update_wall_time()
-        if self.accelerator.is_main_process:
-            self.logger.debug(
-                "End train_step (epoch=%d, step=%d, micro_step=%d, loss=%.6f)",
-                self.state.epoch,
-                self.state.step,
-                self.state.micro_step,
-                float(loss_value.item()),
-            )
-        return loss_value.item()
+        return self._log_train_step_metrics(loss)
 
     def reset_epoch_counters(self) -> None:
         """Reset per-epoch event counters."""
@@ -308,124 +282,6 @@ class Trainer:
                 self.state.epoch + 1,
             )
 
-    # ------------------------------------------------------------------
-    # Logging utilities
-    # ------------------------------------------------------------------
-    def _aggregate_epoch_event_counts(self) -> tuple[int, int, int, int]:
-        """Aggregate per-epoch event counters across processes.
-
-        Returns a tuple of ints: (loss_nan_inf, grad_nan_inf, grad_clip_norm, grad_clip_value).
-        """
-        counts_local = torch.tensor(
-            [
-                self._epoch_loss_nan_inf_count,
-                self._epoch_grad_nan_inf_count,
-                self._epoch_grad_clip_norm_count,
-                self._epoch_grad_clip_value_count,
-            ],
-            device=self.accelerator.device,
-            dtype=torch.long,
-        )
-        if self.accelerator.num_processes > 1:
-            gathered = self.accelerator.gather(counts_local)
-            counts_all = gathered.view(-1, 4).sum(dim=0)
-        else:
-            counts_all = counts_local
-        return (
-            int(counts_all[0].item()),
-            int(counts_all[1].item()),
-            int(counts_all[2].item()),
-            int(counts_all[3].item()),
-        )
-
-    def _log_epoch_event_counts(self, counts: tuple[int, int, int, int]) -> None:
-        """Log aggregated per-epoch event counters to W&B and logger."""
-        if not self.accelerator.is_main_process:
-            return
-        loss_nan_inf_count, grad_nan_inf_count, grad_clip_norm_count, grad_clip_value_count = counts
-
-        if wandb.run is not None:
-            wandb.log(
-                {
-                    "train/events/loss_nan_or_inf_count": loss_nan_inf_count,
-                    "train/events/grad_nan_or_inf_count": grad_nan_inf_count,
-                    "train/events/grad_clip_norm_count": grad_clip_norm_count,
-                    "train/events/grad_clip_value_count": grad_clip_value_count,
-                },
-                step=self.state.step,
-            )
-
-        self.logger.info(
-            "Epoch %d | events: loss_nan_or_inf=%d, grad_nan_or_inf=%d, clip_norm=%d, clip_value=%d",
-            self.state.epoch + 1,
-            loss_nan_inf_count,
-            grad_nan_inf_count,
-            grad_clip_norm_count,
-            grad_clip_value_count,
-        )
-
-    def _log_epoch_train_summary(self, mean_loss: float, avg_step_time: float, epoch_time: float) -> None:
-        """Log final epoch training summary to both W&B and the standard logger."""
-        if not self.accelerator.is_main_process:
-            return
-        # W&B logging (mean loss + timing stats)
-        if wandb.run is not None:
-            wandb.log(
-                {
-                    f"train/avg_{self.criterion_name}_loss": mean_loss,
-                    "train/avg_step_time": avg_step_time,
-                    "train/epoch_time": epoch_time,
-                },
-                step=self.state.step,
-            )
-        # Classic logger summary
-        self.logger.info(
-            "Epoch %d | train/avg_%s_loss=%.6f | avg_step_time=%.4fs | epoch_time=%.2fs | step=%d",
-            self.state.epoch + 1,
-            self.criterion_name,
-            mean_loss,
-            avg_step_time,
-            epoch_time,
-            self.state.step,
-        )
-        self.logger.info("End train_epoch (epoch=%d)", self.state.epoch + 1)
-
-    # -------------------------------
-    # Validation logging helpers
-    # -------------------------------
-    def _aggregate_validation_mean(self, total_loss_local: float, num_batches_local: int) -> float:
-        """Aggregate per-process validation loss to a global mean.
-
-        Accepts the local process sum of losses and count of batches, reduces
-        across processes, and returns the global mean loss.
-        """
-        sum_tensor = torch.tensor([total_loss_local], device=self.accelerator.device, dtype=torch.float32)
-        cnt_tensor = torch.tensor([num_batches_local], device=self.accelerator.device, dtype=torch.long)
-        if self.accelerator.num_processes > 1:
-            sum_all = self.accelerator.gather(sum_tensor).sum()
-            cnt_all = self.accelerator.gather(cnt_tensor).sum()
-        else:
-            sum_all = sum_tensor[0]
-            cnt_all = cnt_tensor[0]
-        global_sum = float(sum_all.item())
-        global_count = max(int(cnt_all.item()), 1)
-        return global_sum / global_count
-
-    def _log_epoch_val_summary(self, mean_loss: float) -> None:
-        """Log final validation summary to both W&B and the standard logger."""
-        if not self.accelerator.is_main_process:
-            return
-        if wandb.run is not None:
-            wandb.log({f"val/avg_{self.criterion_name}_loss": mean_loss}, step=self.state.step)
-        self.logger.info(
-            "Epoch %d | val/avg_%s_loss=%.6f | step=%d",
-            self.state.epoch,
-            self.criterion_name,
-            mean_loss,
-            self.state.step,
-        )
-        self.logger.info("End run_evaluation (epoch=%d)", self.state.epoch)
-
     def train_epoch(
         self,
     ) -> float:
@@ -434,16 +290,11 @@ class Trainer:
         # Reset epoch counters
         self.reset_epoch_counters()
 
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "Begin train_epoch (epoch=%d, start_step=%d)",
-                self.state.epoch + 1,
-                self.state.step,
-            )
+        start_step = self.state.step
+        self._log_train_epoch_begin(start_step)
 
         total_loss = 0.0
         epoch_start_time = time.time()
-        start_step = self.state.step
         # Show progress bar only on main process
         disable = not self.accelerator.is_main_process
         progress_bar = tqdm(
@@ -484,22 +335,13 @@ class Trainer:
             (loss, pred_latents, target_latents, context_latents), where
             ``loss`` is returned as a plain float for lightweight accumulation.
         """
-        if self.accelerator.is_main_process:
-            self.logger.debug(
-                "Begin run_evaluation_step (epoch=%d)",
-                self.state.epoch,
-            )
+        self._log_run_evaluation_step_begin()
         self.model.eval()
         with self.accelerator.autocast():
             pred_latents, target, context_latents, target_latents = self.model(batch)
             loss = self.criterion(pred_latents, target)
         value = float(loss.detach().item())
-        if self.accelerator.is_main_process:
-            self.logger.debug(
-                "End run_evaluation_step (epoch=%d, loss=%.6f)",
-                self.state.epoch,
-                value,
-            )
+        self._log_run_evaluation_step_end({f"val/avg_{self.criterion_name}_loss": value})
         return value, pred_latents, target_latents, context_latents
     
     @torch.inference_mode()
@@ -512,20 +354,10 @@ class Trainer:
         # Respect evaluation cadence if configured
         if self.eval_every is not None and self.eval_every > 1:
             if (self.state.epoch % self.eval_every) != 0:
-                if self.accelerator.is_main_process:
-                    self.logger.info(
-                        "Skip run_evaluation (epoch=%d): eval_every=%d",
-                        self.state.epoch,
-                        self.eval_every,
-                    )
+                self._log_run_evaluation_skip(self.eval_every)
                 return None
 
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "Begin run_evaluation (epoch=%d, step=%d)",
-                self.state.epoch,
-                self.state.step,
-            )
+        self._log_run_evaluation_begin()
 
         self.model.eval()
 
@@ -558,12 +390,7 @@ class Trainer:
     @torch.inference_mode()
     def run_visualisation(self) -> None:
         """Export videos and latents for visual inspection."""
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "Begin run_visualisation (epoch=%d, step=%d)",
-                self.state.epoch,
-                self.state.step,
-            )
+        self._log_visualisation_begin()
         if not self.accelerator.is_main_process:
             return
         self.model.eval()
@@ -623,17 +450,85 @@ class Trainer:
                 example_idx += 1
                 num_examples += 1
         mpl_logger.setLevel(_prev_mpl_level)
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "End run_visualisation (epoch=%d, files=%d)",
-                self.state.epoch,
-                num_examples,
-            )
+        self._log_visualisation_end(num_examples)
     # ------------------------------------------------------------------
     # Checkpoint utilities
     # ------------------------------------------------------------------
     def save_checkpoint(self) -> None:
-        pass
+        save_every_raw = getattr(self, "save_every", None)
+        if save_every_raw is None:
+            return
+
+        try:
+            save_interval = int(save_every_raw)
+        except (TypeError, ValueError):
+            if self.accelerator.is_main_process:
+                self.logger.error("Invalid save_every configuration: %s", save_every_raw)
+            return
+
+        if save_interval <= 0:
+            return
+
+        if self.state.epoch == 0 or (self.state.epoch % save_interval) != 0:
+            return
+
+        if self.checkpoint_dir is None:
+            if self.accelerator.is_main_process:
+                self.logger.warning("Skipping checkpoint save: checkpoint directory is not set.")
+            return
+
+        checkpoint_root = self.checkpoint_dir / f"epoch_{self.state.epoch:04d}"
+
+        self.accelerator.wait_for_everyone()
+        if self.accelerator.is_main_process:
+            checkpoint_root.mkdir(parents=True, exist_ok=True)
+            self.logger.info(
+                "Saving checkpoint at epoch %d (step %d) to %s",
+                self.state.epoch,
+                self.state.step,
+                checkpoint_root,
+            )
+        self.accelerator.wait_for_everyone()
+
+        self.accelerator.save_state(str(checkpoint_root))
+        self.accelerator.wait_for_everyone()
+
+        if self.accelerator.is_main_process:
+            config_container = OmegaConf.to_container(
+                self.config,
+                resolve=True,
+                enum_to_str=True,
+            )
+
+            save_every_map: Dict[str, Any] = {}
+
+            def _collect_save_every(node: Any, path: list[str]) -> None:
+                if isinstance(node, dict):
+                    for key, value in node.items():
+                        new_path = path + [str(key)]
+                        if str(key).lower() == "save_every":
+                            save_every_map[".".join(new_path)] = value
+                        _collect_save_every(value, new_path)
+                elif isinstance(node, list):
+                    for idx, value in enumerate(node):
+                        _collect_save_every(value, path + [f"[{idx}]"])
+
+            if config_container is not None:
+                _collect_save_every(config_container, [])
+
+            metadata = {
+                "trainer_state": asdict(self.state),
+                "config_save_every": save_every_map,
+                "config": config_container,
+                "save_interval": save_interval,
+                "timestamp": time.time(),
+            }
+
+            trainer_state_path = checkpoint_root / "trainer_state.pt"
+            torch.save(metadata, trainer_state_path)
+            self.logger.info("Checkpoint artefacts written to %s", checkpoint_root)
+
+        self.accelerator.wait_for_everyone()
 
 
     # ------------------------------------------------------------------
@@ -714,6 +609,24 @@ class LocatorTrainer(Trainer):
             debug=debug,
             dump_dir=dump_dir,
         )
+        self.heatmap_criterion_name = config.TRAINING.HEATMAP_LOSS
+        self.heatmap_criterion = get_criterion(self.heatmap_criterion_name)
+
+    @staticmethod
+    def _reshape_heatmap_target(target: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+        if target.shape == reference.shape:
+            return target
+        return target.reshape(reference.shape)
+
+    @staticmethod
+    def _prepare_heatmap_cross_entropy_inputs(
+        logits: torch.Tensor, target: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Flatten logits/targets into ``[B, N]`` and derive class indices."""
+        logits_flat = logits.flatten(start_dim=1)
+        target_flat = target.flatten(start_dim=1)
+        indices = target_flat.argmax(dim=1).long()
+        return logits_flat, indices
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
@@ -722,13 +635,7 @@ class LocatorTrainer(Trainer):
 
         Coordinates are supervised using normalised targets in ``[0, 1]``.
         """
-        if self.accelerator.is_main_process:
-            self.logger.debug(
-                "Begin train_step (epoch=%d, step=%d, micro_step=%d)",
-                self.state.epoch,
-                self.state.step,
-                self.state.micro_step + 1,
-            )
+        self._log_train_step_begin()
 
         self.model.train()
         self.state.increment_micro_step()
@@ -736,15 +643,35 @@ class LocatorTrainer(Trainer):
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 outputs = self.model(batch)
-                loss_square = self.criterion(
-                    outputs["square_pred"],
-                    batch["target_square_position_normalized"].to(outputs["square_pred"].dtype),
+                square_pred = outputs["square_pred"]
+                circle_pred = outputs["circle_pred"]
+                square_target = batch["target_square_position_normalized"].to(square_pred.dtype)
+                circle_target = batch["target_circle_position_normalized"].to(circle_pred.dtype)
+                square_logits = outputs["square_heatmap_logits"]
+                circle_logits = outputs["circle_heatmap_logits"]
+                square_patch = self._reshape_heatmap_target(
+                    batch["target_square_heatmap_patch"].to(square_logits),
+                    square_logits,
                 )
-                loss_circle = self.criterion(
-                    outputs["circle_pred"],
-                    batch["target_circle_position_normalized"].to(outputs["circle_pred"].dtype),
+                circle_patch = self._reshape_heatmap_target(
+                    batch["target_circle_heatmap_patch"].to(circle_logits),
+                    circle_logits,
                 )
-                loss = loss_square + loss_circle
+                coord_loss_square = self.criterion(square_pred, square_target)
+                coord_loss_circle = self.criterion(circle_pred, circle_target)
+                coord_loss = coord_loss_square + coord_loss_circle
+                square_logits_flat, square_target_idx = self._prepare_heatmap_cross_entropy_inputs(
+                    square_logits,
+                    square_patch,
+                )
+                circle_logits_flat, circle_target_idx = self._prepare_heatmap_cross_entropy_inputs(
+                    circle_logits,
+                    circle_patch,
+                )
+                heatmap_loss_square = self.heatmap_criterion(square_logits_flat, square_target_idx)
+                heatmap_loss_circle = self.heatmap_criterion(circle_logits_flat, circle_target_idx)
+                heatmap_loss = heatmap_loss_square + heatmap_loss_circle
+                loss = coord_loss + heatmap_loss
 
             self.check_loss_is_finite(loss)
             self.accelerator.backward(loss)
@@ -764,46 +691,18 @@ class LocatorTrainer(Trainer):
                 self.scheduler.step()
             self.optimizer.zero_grad()
 
-        # Reduce loss for logging
-        loss_value = loss.detach()
-        if self.accelerator.num_processes > 1:
-            loss_value = self.accelerator.gather(loss_value).mean()
-
-        if self.accelerator.sync_gradients:
-            if wandb.run is not None and self.accelerator.is_main_process:
-                lr = self.optimizer.param_groups[0]["lr"]
-                wandb.log(
-                    {f"train/{self.criterion_name}_loss": float(loss_value.item()), "train/lr": lr},
-                    step=self.state.step,
-                )
-            self.state.increment_step()
-
-        self.state.update_wall_time()
-        if self.accelerator.is_main_process:
-            self.logger.debug(
-                "End train_step (epoch=%d, step=%d, micro_step=%d, loss=%.6f)",
-                self.state.epoch,
-                self.state.step,
-                self.state.micro_step,
-                float(loss_value.item()),
-            )
-        return float(loss_value.item())
+        return self._log_train_step_metrics(loss, coord_loss, heatmap_loss)
 
     def train_epoch(self) -> float:
         """One full pass over the training set for the locator."""
         # Reset counters and log start
         self.reset_epoch_counters()
 
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "Begin train_epoch (epoch=%d, start_step=%d)",
-                self.state.epoch + 1,
-                self.state.step,
-            )
+        start_step = self.state.step
+        self._log_train_epoch_begin(start_step)
 
         total_loss = 0.0
         epoch_start_time = time.time()
-        start_step = self.state.step
 
         disable = not self.accelerator.is_main_process
         progress_bar = tqdm(
@@ -834,12 +733,7 @@ class LocatorTrainer(Trainer):
     @torch.inference_mode()
     # Overwrite run_visualisation from parent Trainer class
     def run_visualisation(self) -> None:
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "Begin run_visualisation (epoch=%d, step=%d)",
-                self.state.epoch,
-                self.state.step,
-            )
+        self._log_visualisation_begin()
         if not self.accelerator.is_main_process:
             return
         self.model.eval()
@@ -859,23 +753,14 @@ class LocatorTrainer(Trainer):
                 logger=self.logger,
             )
             num_examples += batch["image"].shape[0]
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "End run_visualisation (epoch=%d, files=%d)",
-                self.state.epoch,
-                num_examples,
-            )
+        self._log_visualisation_end(num_examples)
 
     # ------------------------------------------------------------------
     # Evaluation step override (loss on normalised positions)
     # ------------------------------------------------------------------
     @torch.no_grad()
     def run_evaluation_step(self, batch: dict) -> tuple[float, torch.Tensor, torch.Tensor, torch.Tensor]:
-        if self.accelerator.is_main_process:
-            self.logger.debug(
-                "Begin run_evaluation_step (epoch=%d)",
-                self.state.epoch,
-            )
+        self._log_run_evaluation_step_begin()
         self.model.eval()
         with self.accelerator.autocast():
             outputs = self.model(batch)
@@ -883,83 +768,66 @@ class LocatorTrainer(Trainer):
             circle_pred = outputs["circle_pred"]
             square_tgt = batch["target_square_position_normalized"].to(square_pred.dtype)
             circle_tgt = batch["target_circle_position_normalized"].to(circle_pred.dtype)
-
-            loss = self.criterion(square_pred, square_tgt) + self.criterion(circle_pred, circle_tgt)
+            coord_loss = self.criterion(square_pred, square_tgt) + self.criterion(circle_pred, circle_tgt)
             square_pred_px = outputs["denormalized_square_pred"]
             circle_pred_px = outputs["denormalized_circle_pred"]
             square_tgt_px = batch["target_square_position_pixel"].to(square_pred_px.dtype)
             circle_tgt_px = batch["target_circle_position_pixel"].to(circle_pred_px.dtype)
-
             pixel_loss = self.criterion(square_pred_px, square_tgt_px) + self.criterion(circle_pred_px, circle_tgt_px)
+            square_logits = outputs["square_heatmap_logits"]
+            circle_logits = outputs["circle_heatmap_logits"]
+            square_patch = self._reshape_heatmap_target(
+                batch["target_square_heatmap_patch"].to(square_logits),
+                square_logits,
+            )
+            circle_patch = self._reshape_heatmap_target(
+                batch["target_circle_heatmap_patch"].to(circle_logits),
+                circle_logits,
+            )
+            square_logits_flat, square_target_idx = self._prepare_heatmap_cross_entropy_inputs(
+                square_logits,
+                square_patch,
+            )
+            circle_logits_flat, circle_target_idx = self._prepare_heatmap_cross_entropy_inputs(
+                circle_logits,
+                circle_patch,
+            )
+            heatmap_loss = self.heatmap_criterion(square_logits_flat, square_target_idx) + self.heatmap_criterion(circle_logits_flat, circle_target_idx)
 
         pixel_loss = pixel_loss.detach()
-        value = float(loss.detach().item())
+        heatmap_loss = heatmap_loss.detach()
+        value = float(coord_loss.detach().item())
+        heatmap_value = float(heatmap_loss.item())
         pixel_value = float(pixel_loss.item())
-        if self.accelerator.is_main_process:
-            self.logger.debug(
-                "End run_evaluation_step (epoch=%d, val/avg_%s_loss_normalized_v1=%.6f, val/avg_%s_loss_pixel_v1=%.6f)",
-                self.state.epoch,
-                self.criterion_name,
-                value,
-                self.criterion_name,
-                pixel_value,
-            )
-        # Return placeholders for latents to match base signature
-        dummy = torch.empty(0, device=self.accelerator.device)
-        return value, pixel_loss, dummy, dummy
-
-    def _log_locator_val_summary(self, mean_normalized_loss: float, mean_pixel_loss: float) -> None:
-        """Log locator-specific validation metrics to W&B and the standard logger."""
-        if not self.accelerator.is_main_process:
-            return
-
         metric_norm = f"val/avg_{self.criterion_name}_loss_normalized_v1"
         metric_pixel = f"val/avg_{self.criterion_name}_loss_pixel_v1"
-
-        if wandb.run is not None:
-            wandb.log(
-                {
-                    metric_norm: mean_normalized_loss,
-                    metric_pixel: mean_pixel_loss,
-                },
-                step=self.state.step,
-            )
-
-        self.logger.info(
-            "Epoch %d | %s=%.6f | %s=%.6f | step=%d",
-            self.state.epoch,
-            metric_norm,
-            mean_normalized_loss,
-            metric_pixel,
-            mean_pixel_loss,
-            self.state.step,
+        metric_heatmap = f"val/avg_{self.heatmap_criterion_name}_loss_patch_v1"
+        self._log_run_evaluation_step_end(
+            {
+                metric_norm: value,
+                metric_pixel: pixel_value,
+                metric_heatmap: heatmap_value,
+            }
         )
-        self.logger.info("End run_evaluation (epoch=%d)", self.state.epoch)
+        # Return placeholders for latents to match base signature
+        dummy = torch.empty(0, device=self.accelerator.device)
+        return value, pixel_loss, heatmap_loss, dummy
 
     @torch.inference_mode()
     def run_evaluation(self) -> Optional[float]:
         """Run evaluation and log both normalized and pixel-space losses."""
         if self.eval_every is not None and self.eval_every > 1:
             if (self.state.epoch % self.eval_every) != 0:
-                if self.accelerator.is_main_process:
-                    self.logger.info(
-                        "Skip run_evaluation (epoch=%d): eval_every=%d",
-                        self.state.epoch,
-                        self.eval_every,
-                    )
+                self._log_run_evaluation_skip(self.eval_every)
                 return None
 
-        if self.accelerator.is_main_process:
-            self.logger.info(
-                "Begin run_evaluation (epoch=%d, step=%d)",
-                self.state.epoch,
-                self.state.step,
-            )
+        self._log_run_evaluation_begin()
 
         self.model.eval()
 
         total_loss_local = 0.0
         total_pixel_loss_local = 0.0
+        total_heatmap_loss_local = 0.0
         num_batches_local = 0
 
         disable = not self.accelerator.is_main_process
@@ -970,23 +838,27 @@ class LocatorTrainer(Trainer):
         )
 
         for batch in progress_bar:
-            batch_loss, pixel_loss_tensor, _, _ = self.run_evaluation_step(batch)
+            batch_loss, pixel_loss_tensor, heatmap_loss_tensor, _ = self.run_evaluation_step(batch)
             total_loss_local += batch_loss
             total_pixel_loss_local += float(pixel_loss_tensor.item())
+            total_heatmap_loss_local += float(heatmap_loss_tensor.item())
             num_batches_local += 1
 
             mean_norm = total_loss_local / max(num_batches_local, 1)
             mean_pixel = total_pixel_loss_local / max(num_batches_local, 1)
+            mean_heatmap = total_heatmap_loss_local / max(num_batches_local, 1)
             progress_bar.set_postfix(
                 {
                     f"{self.criterion_name}_loss_normalized_v1": mean_norm,
                     f"{self.criterion_name}_loss_pixel_v1": mean_pixel,
+                    f"{self.heatmap_criterion_name}_loss_patch_v1": mean_heatmap,
                 },
                 refresh=False,
             )
 
         mean_loss = self._aggregate_validation_mean(total_loss_local, num_batches_local)
         mean_pixel_loss = self._aggregate_validation_mean(total_pixel_loss_local, num_batches_local)
-        self._log_locator_val_summary(mean_loss, mean_pixel_loss)
+        mean_heatmap_loss = self._aggregate_validation_mean(total_heatmap_loss_local, num_batches_local)
+        self._log_locator_val_summary(mean_loss, mean_pixel_loss, mean_heatmap_loss)
         return mean_loss
 __all__ = ["Trainer", "TrainState", "DeterministicTrainer", "LocatorTrainer"]

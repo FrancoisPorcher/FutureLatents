@@ -330,8 +330,8 @@ class DeterministicCrossAttentionLatentVideoModel(LatentVideoBase):
         prediction = self.predictor(context_latents, target_queries)
         return prediction, target_latents, context_latents, target_latents
 
-class SquarePredictor(nn.Module):
-    """Two-layer MLP that predicts square coordinates from pooled latents."""
+class CoordinatePredictor(nn.Module):
+    """Two-layer MLP that predicts normalized coordinates from pooled latents."""
 
     def __init__(
         self,
@@ -354,91 +354,88 @@ class SquarePredictor(nn.Module):
         return self.network(inputs)
 
 
-class CirclePredictor(nn.Module):
-    """Two-layer MLP that predicts circle coordinates from pooled latents."""
+class HeatmapPredictor(nn.Module):
+    """Lightweight per-patch predictor head used for heatmap logits."""
 
     def __init__(
         self,
         input_dim: int,
         hidden_dim: int,
-        output_dim: int,
-        normalized: bool = True,
     ) -> None:
         super().__init__()
-        layers: list[nn.Module] = [
-            nn.Linear(input_dim, hidden_dim),
+        # input [B, D, H, W] -> output [B, 1, H, W]
+        self.network = nn.Sequential(
+            nn.Conv2d(input_dim, hidden_dim, kernel_size=1, stride=1), # [B, D, H, W] -> [B, hidden_dim, H, W]
             nn.GELU(),
-            nn.Linear(hidden_dim, output_dim),
-        ]
-        if normalized:
-            layers.append(nn.Sigmoid())
-        self.network = nn.Sequential(*layers)
+            nn.Conv2d(hidden_dim, 1, kernel_size=1, stride=1), # [B, hidden_dim, H, W] -> [B, 1, H, W]
+        )
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        return self.network(inputs)
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        logits = self.network(features)
+        return logits
+
+
+# Backwards compatible aliases for older imports.
+SquarePredictor = CoordinatePredictor
+CirclePredictor = CoordinatePredictor
+SquareHeatmapPredictor = HeatmapPredictor
+CircleHeatmapPredictor = HeatmapPredictor
 
 
 class PositionPredictor(LatentVideoBase):
-    """Locator model for the bouncing shapes dataset."""
+    """Locator model predicting coordinates and heatmaps for bouncing shapes."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
         super().__init__(config)
-        self.image_size = config.BACKBONE.IMAGE_SIZE
         predictor_cfg = config.MODEL.PREDICTOR
         input_dim = predictor_cfg.INPUT_DIM
         hidden_dim = predictor_cfg.HIDDEN_DIM
         output_dim = predictor_cfg.OUTPUT_DIM
         self.normalized_coordinates = predictor_cfg.NORMALIZED_COORDINATES
+        self.image_size = config.BACKBONE.IMAGE_SIZE
+        self.patch_size = int(config.BACKBONE.PATCH_SIZE)
+        heatmap_hidden_dim = predictor_cfg.HEATMAP_HIDDEN_DIM
 
-        self.square_predictor = SquarePredictor(
-            input_dim,
-            hidden_dim,
-            output_dim,
+        predictor_kwargs = dict(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            output_dim=output_dim,
             normalized=self.normalized_coordinates,
         )
-        self.circle_predictor = CirclePredictor(
+        self.square_predictor = CoordinatePredictor(**predictor_kwargs)
+        self.circle_predictor = CoordinatePredictor(**predictor_kwargs)
+        self.square_heatmap_predictor = HeatmapPredictor(
             input_dim,
-            hidden_dim,
-            output_dim,
-            normalized=self.normalized_coordinates,
+            heatmap_hidden_dim,
         )
+        self.circle_heatmap_predictor = HeatmapPredictor(
+            input_dim,
+            heatmap_hidden_dim,
+        )
+
 
     def forward(self, batch: Dict[str, Any]):
-        latents = self.encode_image_with_backbone(batch)  # [B, D, H, W]
-        latents = self.norm_embeddings(latents)  # [B, D, H, W]
-        pooled = F.adaptive_avg_pool2d(latents, output_size=1)  # [B, D, 1, 1]
-        pooled = pooled.flatten(start_dim=1)  # [B, D]
+        latents = self.norm_embeddings(self.encode_image_with_backbone(batch))
+        pooled = F.adaptive_avg_pool2d(latents, 1).flatten(start_dim=1)
 
-        square_pred = self.square_predictor(pooled)  # [B, 2]
-        circle_pred = self.circle_predictor(pooled)  # [B, 2]
-        
+        square_pred = self.square_predictor(pooled)
+        circle_pred = self.circle_predictor(pooled)
         scale = 0.5 * (self.image_size - 1)
-        denormalized_square_pred = (square_pred + 1.0) * scale # [B, 2]
-        denormalized_circle_pred = (circle_pred + 1.0) * scale # [B, 2]
-
-        return {
+        denorm_square = (square_pred + 1.0) * scale
+        denorm_circle = (circle_pred + 1.0) * scale
+        square_logits_map = self.square_heatmap_predictor(latents)
+        circle_logits_map = self.circle_heatmap_predictor(latents)
+        outputs: Dict[str, Any] = {
             "normalized_latents": latents,
             "square_pred": square_pred,
             "circle_pred": circle_pred,
-            "denormalized_square_pred": denormalized_square_pred,
-            "denormalized_circle_pred": denormalized_circle_pred,
-        }
-        
-        
-class HeatmapPredictor(LatentVideoBase):
-    """Locator model for the bouncing shapes dataset using heatmap prediction."""
+            "denormalized_square_pred": denorm_square,
+            "denormalized_circle_pred": denorm_circle,
+            "square_heatmap_logits": square_logits_map,
+            "circle_heatmap_logits": circle_logits_map
+            }
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super().__init__(config)
-
-    def forward(self, batch: Dict[str, Any]):
-        latents = self.encode_image_with_backbone(batch)  # [B, D, H, W]
-        latents = self.norm_embeddings(latents)  # [B, D, H, W]
-        
-        
-        
-
-
+        return outputs
 
 
 
@@ -447,7 +444,11 @@ __all__ = [
     "FlowMatchingLatentVideoModel",
     "DeterministicLatentVideoModel",
     "DeterministicCrossAttentionLatentVideoModel",
+    "CoordinatePredictor",
     "SquarePredictor",
     "CirclePredictor",
     "PositionPredictor",
+    "HeatmapPredictor",
+    "SquareHeatmapPredictor",
+    "CircleHeatmapPredictor",
 ]

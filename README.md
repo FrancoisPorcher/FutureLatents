@@ -12,9 +12,6 @@ prediction regimes are available:
 - Deterministic (Cross‑Attention): context→target cross‑attention variant
 - Stochastic (Flow Matching): diffusive/flow‑matching training
 
-There is also a `Kinetics400_cached` path to train on pre‑computed embeddings.
-Support for 4DS is incoming alongside additional backbones and datasets.
-
 
 ## Installation
 
@@ -54,41 +51,6 @@ inherits:
 
 The `trainer.training` section controls optimisation parameters such as loss
 function selection, precision, gradient checkpointing, and gradient clipping.
-
-### Flow matching
-
-Flow matching follows the diffusive modelling paradigm where latent tokens are
-incrementally noised and denoised.  The `model.flow_matching` section in
-`training/trainer_flow_matching.yaml` provides the number of training timesteps and the
-configuration for the diffusion transformer (DiT) used to predict the noise at
-each step.  The `LatentVideoModel` reads these values to build its internal DiT
-module.
-
-### Deterministic prediction
-
-Alternatively, FutureLatents offers a deterministic path that dispenses with
-diffusion and directly regresses future latents from the context frames using a
-`PredictorTransformer`.  To enable it, set `model.type` to `deterministic` and
-provide the predictor configuration under `model.predictor`:
-
-```yaml
-model:
-  type: deterministic
-  num_context_latents: 16
-  predictor:
-    dit:
-      input_dim: 1024
-      hidden_dim: 1024
-      depth: 12
-      num_heads: 8
-      mlp_ratio: 4.0
-```
-
-A reference configuration is available in `training/trainer_deterministic.yaml`.
-
-This `DeterministicLatentVideoModel` predicts the remaining latents in a single
-forward pass and optimises the reconstruction `loss` specified in the training
-configuration.
 
 ## Usage
 
@@ -144,6 +106,23 @@ python -m src.main --config_path configs/references/vjepa2_bouncing_shapes_flow_
 
 The number of frames is inherited from `trainer.n_frames` and the resolution
 from the selected backbone (e.g., VJEPA2).
+
+### Locator training
+
+The locator entry point at `src/locator/main.py` trains a lightweight head that
+predicts object positions as coordinates alongside per-class heatmaps. Launch it
+with Accelerate, for example:
+
+```bash
+accelerate launch --num_processes 1 --num_machines 1 -m src.locator.main \
+  --config_path configs/references/dinov3_locator_bouncing_shapes.yaml
+```
+
+Each run saves qualitative visualisations under `experiment/<config_name>/dump/`
+mixing the predicted coordinates and heatmaps with the input frames. The sample
+below comes from epoch 18 of the DINOv3 locator run:
+
+![Locator heatmaps](assets/dinov3_locator_sample.png)
 
 ### Experiments overview
 

@@ -91,6 +91,8 @@ class SyntheticBouncingShapesVideo(Dataset):
             "target_circle_position_normalized": sample["target_circle_position_normalized"],
             "target_square_heatmap": sample["target_square_heatmap"],
             "target_circle_heatmap": sample["target_circle_heatmap"],
+            "target_square_heatmap_patch": sample["target_square_heatmap_patch"],
+            "target_circle_heatmap_patch": sample["target_circle_heatmap_patch"],
         }
 
     # ---------------------------
@@ -177,11 +179,22 @@ class SyntheticBouncingShapesVideo(Dataset):
         # Per-frame heatmaps marking the centers with value 1.0
         square_heatmap = torch.zeros((T, size, size, 1), dtype=torch.float32)
         circle_heatmap = torch.zeros((T, size, size, 1), dtype=torch.float32)
+        patch_size = 16
+        patch_h = max(size // patch_size, 1)
+        patch_w = max(size // patch_size, 1)
+        square_heatmap_patch = torch.zeros((T, patch_h, patch_w, 1), dtype=torch.float32)
+        circle_heatmap_patch = torch.zeros((T, patch_h, patch_w, 1), dtype=torch.float32)
         for t_idx in range(T):
             sq_x, sq_y = square_centers[t_idx]
             square_heatmap[t_idx, sq_y, sq_x, 0] = 1.0
+            sq_py = min(patch_h - 1, sq_y // patch_size)
+            sq_px = min(patch_w - 1, sq_x // patch_size)
+            square_heatmap_patch[t_idx, sq_py, sq_px, 0] = 1.0
             circ_x, circ_y = circle_centers[t_idx]
             circle_heatmap[t_idx, circ_y, circ_x, 0] = 1.0
+            circ_py = min(patch_h - 1, circ_y // patch_size)
+            circ_px = min(patch_w - 1, circ_x // patch_size)
+            circle_heatmap_patch[t_idx, circ_py, circ_px, 0] = 1.0
         scale = 2.0 / float(self.image_size - 1)
         square_norm = square_px.float() * scale - 1.0
         circle_norm = circle_px.float() * scale - 1.0
@@ -195,6 +208,8 @@ class SyntheticBouncingShapesVideo(Dataset):
             "target_circle_position_normalized": circle_norm,
             "target_square_heatmap": square_heatmap,         # [T, H, W, 1]
             "target_circle_heatmap": circle_heatmap,         # [T, H, W, 1]
+            "target_square_heatmap_patch": square_heatmap_patch,
+            "target_circle_heatmap_patch": circle_heatmap_patch,
         }
 
 
@@ -244,6 +259,8 @@ class SyntheticBouncingShapesImage(Dataset):
             "target_circle_position_normalized": sample["target_circle_position_normalized"],
             "target_square_heatmap": sample["target_square_heatmap"],
             "target_circle_heatmap": sample["target_circle_heatmap"],
+            "target_square_heatmap_patch": sample["target_square_heatmap_patch"],
+            "target_circle_heatmap_patch": sample["target_circle_heatmap_patch"],
         }
 
     def _generate_image_random(self) -> Dict[str, Any]:
@@ -292,6 +309,13 @@ class SyntheticBouncingShapesImage(Dataset):
         square_heatmap[square_cy, square_cx, 0] = 1.0
         circle_heatmap = torch.zeros((size, size, 1), dtype=torch.float32)
         circle_heatmap[cyi, cxi, 0] = 1.0
+        patch_size = 16
+        patch_h = max(size // patch_size, 1)
+        patch_w = max(size // patch_size, 1)
+        square_heatmap_patch = torch.zeros((patch_h, patch_w, 1), dtype=torch.float32)
+        circle_heatmap_patch = torch.zeros((patch_h, patch_w, 1), dtype=torch.float32)
+        square_heatmap_patch[min(patch_h - 1, square_cy // patch_size), min(patch_w - 1, square_cx // patch_size), 0] = 1.0
+        circle_heatmap_patch[min(patch_h - 1, cyi // patch_size), min(patch_w - 1, cxi // patch_size), 0] = 1.0
         scale = 2.0 / float(self.image_size - 1)
         square_norm = square_px.float() * scale - 1.0
         circle_norm = circle_px.float() * scale - 1.0
@@ -304,6 +328,8 @@ class SyntheticBouncingShapesImage(Dataset):
             "target_circle_position_normalized": circle_norm,
             "target_square_heatmap": square_heatmap,  # [H, W, 1]
             "target_circle_heatmap": circle_heatmap,  # [H, W, 1]
+            "target_square_heatmap_patch": square_heatmap_patch,
+            "target_circle_heatmap_patch": circle_heatmap_patch,
         }
 
 

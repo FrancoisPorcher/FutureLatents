@@ -17,7 +17,8 @@ def build_model(config):
         "flow_matching": FlowMatchingLatentVideoModel,
         "deterministic": DeterministicLatentVideoModel,
         "deterministic_cross_attention": DeterministicCrossAttentionLatentVideoModel,
-        "locator": PositionPredictor
+        "locator": PositionPredictor,
+        "heatmap_locator": PositionPredictor,
     }
     try:
         model_cls = models[model_type]

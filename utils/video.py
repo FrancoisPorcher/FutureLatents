@@ -9,7 +9,7 @@ import shutil
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from IPython.display import HTML, display
+from IPython.display import HTML
 import matplotlib.animation as animation
 from PIL import Image, ImageDraw
 
@@ -53,82 +53,44 @@ def save_visualisation_tensors(
     save_tensor(prediction_latents, directory / "prediction_latents.pt", logger=logger)
 
 
-def save_batch(
+def save_position_targets_and_predictions(
     batch: Dict[str, Any],
     outputs: Dict[str, Any],
-    out_dir: Path | str,
+    out_directory: Path,
     batch_idx: int,
     logger: Optional[logging.Logger] = None,
-) -> None:
-    """Persist the input images contained in ``batch`` to ``out_dir``.
+) -> List[str]:
+    images = batch["image"].detach().cpu()
+    square_targets = batch["target_square_position_pixel"].detach().cpu().numpy()
+    circle_targets = batch["target_circle_position_pixel"].detach().cpu().numpy()
+    square_predictions = outputs["denormalized_square_pred"].detach().cpu().numpy()
+    circle_predictions = outputs["denormalized_circle_pred"].detach().cpu().numpy()
+    def _heatmap_softmax(logits: torch.Tensor) -> torch.Tensor:
+        flat = logits.flatten(start_dim=1)
+        probs = torch.softmax(flat, dim=1)
+        return probs.view_as(logits)
 
-    The batch is expected to expose an ``"image"`` tensor shaped ``[B, C, H, W]``.
-    Each sample is exported as ``PNG`` using either the provided ``index`` field
-    (if available) or a ``batch<idx>_sample<idx>`` fallback. Predicted positions
-    from ``outputs`` are overlayed using pixel coordinates supplied by the model.
-    """
-
-
-    images = batch["image"]
-    if not isinstance(images, torch.Tensor):
-        raise TypeError("Batch entry 'image' must be a torch.Tensor")
-
-    images_cpu = images.detach().cpu()
-    if images_cpu.ndim != 4:
-        raise ValueError("'image' tensor must have shape [B, C, H, W]")
-
-    out_directory = Path(out_dir)
-    out_directory.mkdir(parents=True, exist_ok=True)
+    square_heatmap_probs = _heatmap_softmax(outputs["square_heatmap_logits"]).detach().cpu()
+    circle_heatmap_probs = _heatmap_softmax(outputs["circle_heatmap_logits"]).detach().cpu()
 
     indices = batch.get("index")
     if isinstance(indices, torch.Tensor):
-        indices = indices.detach().cpu()
+        indices = indices.detach().cpu().numpy()
+    if indices is not None:
+        index_array = np.asarray(indices).reshape(-1)
+    else:
+        index_array = None
 
-    def _coerce_targets(obj: Any) -> Optional[np.ndarray]:
-        if obj is None:
-            return None
-        if isinstance(obj, torch.Tensor):
-            return obj.detach().cpu().numpy()
-        if isinstance(obj, np.ndarray):
-            return obj
-        if isinstance(obj, (list, tuple)):
-            try:
-                return np.asarray(obj)
-            except Exception:  # pragma: no cover - defensive
-                return None
-        return None
+    def _extract_coords(arr: np.ndarray, sample_idx: int) -> tuple[float, float]:
+        coords = arr[sample_idx]
+        if coords.ndim > 1:
+            coords = coords[0]
+        return float(coords[0]), float(coords[1])
 
-    square_targets = _coerce_targets(batch.get("target_square_position_pixel"))
-    circle_targets = _coerce_targets(batch.get("target_circle_position_pixel"))
-    square_predictions = _coerce_targets(outputs.get("denormalized_square_pred"))
-    circle_predictions = _coerce_targets(outputs.get("denormalized_circle_pred"))
-
-    def _extract_coords(targets: Optional[np.ndarray], sample_idx: int) -> Optional[tuple[float, float]]:
-        if targets is None:
-            return None
-        arr = targets
-        if arr.ndim >= 2:
-            if sample_idx >= arr.shape[0]:
-                return None
-            arr = arr[sample_idx]
-        if arr.ndim >= 2:
-            arr = arr[0]
-        if arr.size < 2:
-            return None
-        return float(arr[0]), float(arr[1])
-
-    def _to_pixel_coordinates(
-        coords: Optional[tuple[float, float]],
-        width: int,
-        height: int,
-    ) -> Optional[tuple[int, int]]:
-        if coords is None:
-            return None
+    def _to_pixel_coordinates(coords: tuple[float, float], width: int, height: int) -> tuple[int, int]:
         x, y = coords
         x = int(round(x))
         y = int(round(y))
-        if width <= 0 or height <= 0:
-            return None
         x = max(0, min(x, width - 1))
         y = max(0, min(y, height - 1))
         return x, y
@@ -154,102 +116,82 @@ def save_batch(
             fill=color,
         )
 
-    batch_size = images_cpu.shape[0]
+    sample_stems: List[str] = []
 
-    for sample_idx in range(batch_size):
-        sample = images_cpu[sample_idx]
-        if sample.ndim != 3:
-            raise ValueError("Each image sample must have shape [C, H, W]")
+    def _upsample_heatmap(prob_map: np.ndarray, height: int, width: int) -> np.ndarray:
+        h_in, w_in = prob_map.shape
+        if h_in == 0 or w_in == 0:
+            return np.zeros((height, width), dtype=np.float32)
+        scale_h = max(height // h_in, 1)
+        scale_w = max(width // w_in, 1)
+        upsampled = np.repeat(np.repeat(prob_map, scale_h, axis=0), scale_w, axis=1)
+        return upsampled[:height, :width]
 
-        img = sample
-        if img.dtype != torch.uint8:
-            img = img.clamp(0, 255).round().to(torch.uint8)
-
+    for sample_idx in range(images.shape[0]):
+        img = images[sample_idx].clamp(0, 255).round().to(torch.uint8)
         arr = img.permute(1, 2, 0).contiguous()
         if arr.shape[-1] == 1:
             arr = arr[..., 0]
         elif arr.shape[-1] > 3:
             arr = arr[..., :3]
-        np_arr = arr.numpy()
-
-        pil_image = Image.fromarray(np_arr)
-        if pil_image.mode != "RGB":
-            pil_image = pil_image.convert("RGB")
+        pil_image = Image.fromarray(arr.numpy())
+        pil_image = pil_image.convert("RGB")
 
         draw = ImageDraw.Draw(pil_image)
         width, height = pil_image.size
-        square_target_color = (170, 85, 255)
-        square_pred_color = (215, 160, 255)
-        circle_target_color = (255, 140, 0)
-        circle_pred_color = (255, 205, 120)
         overlays = (
-            (
-                _to_pixel_coordinates(_extract_coords(square_targets, sample_idx), width, height),
-                square_target_color,
-            ),
-            (
-                _to_pixel_coordinates(
-                    _extract_coords(square_predictions, sample_idx),
-                    width,
-                    height,
-                ),
-                square_pred_color,
-            ),
-            (
-                _to_pixel_coordinates(_extract_coords(circle_targets, sample_idx), width, height),
-                circle_target_color,
-            ),
-            (
-                _to_pixel_coordinates(
-                    _extract_coords(circle_predictions, sample_idx),
-                    width,
-                    height,
-                ),
-                circle_pred_color,
-            ),
+            (_to_pixel_coordinates(_extract_coords(square_targets, sample_idx), width, height), (170, 85, 255)),
+            (_to_pixel_coordinates(_extract_coords(square_predictions, sample_idx), width, height), (215, 160, 255)),
+            (_to_pixel_coordinates(_extract_coords(circle_targets, sample_idx), width, height), (255, 140, 0)),
+            (_to_pixel_coordinates(_extract_coords(circle_predictions, sample_idx), width, height), (255, 205, 120)),
         )
         for coord, color in overlays:
-            if coord is None:
-                continue
-            x, y = coord
-            if 0 <= x < width and 0 <= y < height:
-                _draw_cross(draw, x, y, width, height, color)
+            _draw_cross(draw, coord[0], coord[1], width, height, color)
 
-        # Use dataset index when provided, otherwise fall back to batch ids
-        sample_name: str
-        sample_index: Optional[int] = None
-        if indices is not None:
-            if isinstance(indices, np.ndarray):
-                sample_index = int(indices.reshape(-1)[sample_idx])
-            elif isinstance(indices, torch.Tensor):
-                sample_index = int(indices.reshape(-1)[sample_idx].item())
-            elif isinstance(indices, (list, tuple)):
-                sample_index = int(indices[sample_idx])
-            else:
-                try:
-                    sample_index = int(indices)  # type: ignore[arg-type]
-                except (TypeError, ValueError):
-                    sample_index = None
-
-        if sample_index is not None:
+        if index_array is not None:
+            sample_index = int(index_array[sample_idx])
             sample_name = f"sample_{sample_index:06d}.png"
         else:
             sample_name = f"batch{batch_idx:04d}_sample{sample_idx:02d}.png"
+
         out_path = out_directory / sample_name
-        pil_image.save(out_path)
+        sq_prob = square_heatmap_probs[sample_idx, 0].numpy()
+        circ_prob = circle_heatmap_probs[sample_idx, 0].numpy()
+        heatmap_red = _upsample_heatmap(sq_prob, height, width)
+        heatmap_blue = _upsample_heatmap(circ_prob, height, width)
+        heatmap_rgb = np.zeros((height, width, 3), dtype=np.uint8)
+        heatmap_rgb[..., 0] = np.clip(heatmap_red * 255.0, 0, 255).astype(np.uint8)
+        heatmap_rgb[..., 2] = np.clip(heatmap_blue * 255.0, 0, 255).astype(np.uint8)
+        heatmap_image = Image.fromarray(heatmap_rgb)
+        combined = Image.new("RGB", (width + heatmap_image.width, height))
+        combined.paste(pil_image, (0, 0))
+        combined.paste(heatmap_image, (width, 0))
+
+        combined.save(out_path)
         if logger is not None:
             logger.info("Saved image -> %s", str(out_path))
-            
-            
-            
-            
-            
-            
-        target_square_heatmap = batch.get("target_square_heatmap")
-        target_circle_heatmap = batch.get("target_circle_heatmap")
-            
-        
-        breakpoint()
+
+        sample_stems.append(Path(sample_name).stem)
+
+    return sample_stems
+
+
+def save_batch(
+    batch: Dict[str, Any],
+    outputs: Dict[str, Any],
+    out_dir: Path | str,
+    batch_idx: int,
+    logger: Optional[logging.Logger] = None,
+) -> None:
+    out_directory = Path(out_dir)
+    out_directory.mkdir(parents=True, exist_ok=True)
+    save_position_targets_and_predictions(
+        batch,
+        outputs,
+        out_directory,
+        batch_idx,
+        logger,
+    )
     return None
 
 
